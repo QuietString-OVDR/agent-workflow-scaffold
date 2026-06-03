@@ -1,176 +1,89 @@
-# Multi-Agent Setup Starter
+# Branch Docs Starter
 
-This package installs a Claude Code + OpenAI Codex plugin workflow into a repository.
+This package applies a branch-scoped documentation workflow to a repository.
 
-The intended operating model is:
+Core rules:
 
-- **Claude Code** is the single local work console.
-- **Codex** is called from inside Claude Code through `openai/codex-plugin-cc`.
-- Codex drafts design/spec/handoff material, runs adversarial design reviews, reviews code, and performs bounded investigations.
-- Claude and the human owner curate Codex output before it becomes canonical.
-- Branch docs under `docs/branches/<branch-doc-dir>/` are the source of truth.
+- Canonical branch docs live under `docs/branches/<branch-doc-dir>/`
+- The current branch name is the documentation key; replace `/` with `~` for the folder name
+- Generated artifacts, scratch files, downloads, logs, and temporary outputs live under `./.agent-work/`
+- `./.codex/` is reserved for project-scoped Codex configuration files
+- Branch docs and agent replies must always be written in English
+- Before code lookup, agents must read the branch README and `status/code-map.md` and use the code map as the first search index
 
-The canonical workflow reference lives at `docs/workflow/` (project-wide, single copy). Branch doc directories do not contain their own copy of the workflow document.
+This layout reflects the OpenAI Codex guidance for `workspace-write` sandboxes, where `.codex/` is treated as a protected path.
 
 ## Included Files
 
 - `AGENTS.md`
-  - Minimal starter guidance for a fresh repository.
-- `AGENTS.multi-agent.md`
-  - Guidance block to append to an existing `AGENTS.md`.
-- `CLAUDE.md`
-  - Claude Code entrypoint that points at `AGENTS.md`.
-- `REVIEW.md`
-  - Review criteria for local and PR review agents.
+  - Local guidance for agents working in this starter package
+- `AGENTS.branch-docs.md`
+  - Branch-docs guidance block used to create or update target repository `AGENTS.md` files
 - `.codex/config.toml`
-  - Example project-scoped Codex profiles.
-- `.agent-work/`
-  - Working-area skeleton for generated outputs, logs, and scratch files.
-- `.claude/settings.json`
-  - PostToolUse and Stop hooks for automatic change tracking and review reminders.
-- `.claude/hooks/`
-  - `track-changes.sh`: logs source file edits to `.agent-work/session-changes.log` and sets a pending-review flag.
-  - `notify-pending-review.sh`: surfaces a Codex review reminder when Claude is about to stop, if source files were changed.
-- `.claude/agents/`
-  - Claude project subagents for implementation, design review, and code review.
-- `.claude/commands/`
-  - Claude command prompts for handoff preparation and Codex review.
+  - Example project-scoped Codex profiles
+- `.agent-work/.gitignore` and `.agent-work/README.md`
+  - Working-area skeleton files for generated outputs
+- `.agent-work.gitignore.block`
+  - Ignore rules for `.agent-work/` plus branch-docs/tool exceptions for repositories with blanket-ignore policies
 - `docs/branches/_template/`
-  - Starter branch documentation tree, including the multi-agent workflow docs.
+  - Starter template for new branch doc roots
 - `tools/agent/init-branch-docs.sh`
-  - Script that detects the current branch and initializes `docs/branches/<branch-doc-dir>/`.
+  - Script that detects the current branch and initializes `docs/branches/<branch-doc-dir>/`
 - `install-to-repo.sh`
-  - Bash installer for Linux, macOS, and WSL.
+  - Helper script that installs the starter into a target repository
 - `install-to-repo.bat`
-  - Windows batch installer.
+  - Windows batch helper that installs the starter into a target repository
 
-## Install
-
-From this package directory:
+## Recommended Install
 
 ```bash
 bash install-to-repo.sh /path/to/target-repo
 ```
 
-On Windows:
-
 ```bat
 install-to-repo.bat C:\path\to\target-repo
 ```
 
-The installer:
+The install script:
 
-1. Creates `.codex/config.toml` if it does not exist.
-2. Copies `.agent-work/`, `.claude/`, `docs/branches/_template/`, and `tools/agent/init-branch-docs.sh`.
-3. Creates `AGENTS.md` if missing, or appends `AGENTS.multi-agent.md` if `AGENTS.md` already exists.
-4. Creates `CLAUDE.md` and `REVIEW.md` if they do not exist.
-5. Appends `.agent-work/` ignore rules to `.gitignore` if missing.
+1. Creates `.codex/config.toml` if it does not exist
+2. Copies `.agent-work` skeleton files, `docs/branches/_template/`, and `tools/agent/init-branch-docs.sh`
+3. Creates `AGENTS.md` from `AGENTS.branch-docs.md` if it does not exist
+4. Appends the `AGENTS.branch-docs.md` block if `AGENTS.md` already exists
+5. Appends branch-docs and `.agent-work/` ignore rules to `.gitignore` if they are missing
 
-Existing files are not overwritten.
+## Manual Install
 
-## First-Time Setup In A Target Repo
+1. Copy `.codex/config.toml` into the target repo's `.codex/`
+2. Copy `.agent-work/.gitignore`, `.agent-work/README.md`, `docs/branches/_template/`, and `tools/agent/init-branch-docs.sh`
+3. If the target repo has no `AGENTS.md`, create one with a `# Repository Guidelines` header and the contents of `AGENTS.branch-docs.md`
+4. If the target repo already has `AGENTS.md`, append the block from `AGENTS.branch-docs.md`
+5. Add the branch-docs and `.agent-work/` ignore block to `.gitignore`
 
-1. Install the starter package.
-2. Open the target repo in Claude Code.
-3. Install the Codex plugin inside Claude Code:
+## Usage
 
-```text
-/plugin marketplace add openai/codex-plugin-cc
-/plugin install codex@openai-codex
-/reload-plugins
-/codex:setup
-```
-
-4. Keep the Codex plugin review gate disabled at first:
-
-```text
-/codex:setup --disable-review-gate
-```
-
-5. From the target repository root, initialize branch docs:
+1. Create or check out a branch such as `sandbox/ovdr-4397`, `feature/new-login`, or `ovdr-4397-some-work`
+2. Run:
 
 ```bash
 bash ./tools/agent/init-branch-docs.sh
 ```
 
-Run this from the real repository root or from a submodule where resolving the superproject root is intended. Do not test it from a temporary directory nested inside another unrelated Git repo.
-
-If branch docs already exist and you only want missing template files:
+3. If the branch doc root already exists and you only want to add missing template files, run:
 
 ```bash
 bash ./tools/agent/init-branch-docs.sh --sync-missing
 ```
 
-## Automation Scope
+4. Before source investigation or code edits, read the branch README and `status/code-map.md`. Use `Search First` entries before any broad content search.
 
-The hooks in `.claude/settings.json` handle two things automatically:
+## Notes
 
-- **PostToolUse (Edit/Write)**: every source file change is appended to `.agent-work/session-changes.log` and a `.agent-work/pending-codex-review` flag is created. Doc paths (`docs/`, `.agent-work/`, `.claude/`, `.codex/`) are excluded.
-- **Stop**: when Claude finishes a response while the pending-review flag exists, a reminder is surfaced listing how many changes were logged and the exact command to run.
-
-Claude cannot invoke `/codex:*` commands autonomously — those are plugin commands, not shell commands. The hooks create a signal; you or Claude act on it.
-
-To clear the flag after review is done:
-
-```bash
-rm .agent-work/pending-codex-review
-```
-
-## Day-To-Day Usage
-
-Run all local agent work inside one Claude Code session.
-
-1. Prepare design/spec draft with Codex if useful:
-
-```text
-/codex:rescue --background Draft the technical spec and design for <feature>. Use AGENTS.md and the current branch docs. Write proposed content for docs/branches/<branch-doc-dir>/spec/technical-spec.md and docs/branches/<branch-doc-dir>/design/<design-doc>.md. Do not modify source code.
-```
-
-2. Check Codex output and curate accepted content:
-
-```text
-/codex:status
-/codex:result
-```
-
-3. Challenge non-trivial designs:
-
-```text
-/codex:adversarial-review --background challenge the current branch design docs for missing requirements, unsafe assumptions, rollout risk, unclear ownership, and unclear implementation scope.
-```
-
-4. Write or update `plans/next-agent-handoff.md`.
-
-5. Have Claude implement from the handoff packet. The `branch-implementer` subagent will ask Claude to run Codex review after implementation completes. The Stop hook will also surface a reminder if source files were changed.
-
-6. Run Codex code review:
-
-```text
-/codex:review --base main --background
-```
-
-7. Curate accepted findings into `plans/code-review.md`. Clear the pending-review flag:
-
-```bash
-rm .agent-work/pending-codex-review
-```
-
-8. Run build/test/manual verification and open the PR.
-
-## Branch Directory Rule
-
-Use the full branch name as the documentation key. Replace `/` with `~` for the folder name:
-
-| Branch | Branch doc directory |
-| --- | --- |
-| `master` | `docs/branches/master/` |
-| `sandbox/ovdr-4397` | `docs/branches/sandbox~ovdr-4397/` |
-| `feature/foo/bar` | `docs/branches/feature~foo~bar/` |
-
-## Safety Notes
-
-- The installed hooks only log changes and surface reminders — they do not invoke Codex automatically. All `/codex:*` commands are explicit.
-- Keep the Codex plugin review gate disabled until review quality, runtime, and cost are understood.
-- Treat `/codex:rescue` output as advisory unless a human owner or Claude coordinator curates it into branch docs.
-- Keep generated logs, raw outputs, and scratch files under `.agent-work/`.
-- Keep `.codex/` for Codex settings/config only.
+- The package uses the full branch name as the documentation key; it does not try to derive a separate work identifier
+- This package's own `AGENTS.md` is local-only and is not installed into target repositories
+- Only `.agent-work` skeleton files are installed; local scratch subdirectories are not copied into target repositories
+- Branch doc directories are Windows-safe. For example, `sandbox/ovdr-4397` becomes `docs/branches/sandbox~ovdr-4397/`
+- `init-branch-docs.sh` can infer the branch from worktrees whose `.git` file points at a Windows-style gitdir such as `Q:/...`
+- The package does not overwrite existing branch docs
+- Execution bits are not guaranteed in this environment, so prefer `bash <script>`
+- `_template/` is a starter only and is never a canonical branch doc root

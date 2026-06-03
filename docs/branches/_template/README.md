@@ -5,20 +5,23 @@ The Windows-safe folder name for this branch is `__BRANCH_DOC_DIR_NAME__`.
 
 ## Reading Order For A New Agent
 
-1. `status/implementation-status.md`
-2. `status/code-map.md`
+1. `status/code-map.md`
+2. `status/implementation-status.md`
 3. `spec/technical-spec.md`
 4. `design/current-architecture.md`
 5. `design/build-automation-design.md` (only for build or automation work)
 6. `plans/next-agent-handoff.md` (when a handoff or follow-up exists)
 
-For the Claude Code + Codex plugin workflow, see the project-wide reference at `docs/workflow/multi-agent-setup.md` (English) and `docs/workflow/multi-agent-setup-ko.md` (Korean).
+## Code Lookup Rule
+
+- Before opening guessed source paths or running broad `rg`, use `status/code-map.md` as the first search index.
+- Start from the `Search First` rows and symbol/module aliases in the code map.
+- If the code map is stale or missing the needed area, update it after the investigation so future sessions do not repeat the same search.
 
 ## Current Canonical Conclusions
 
 - Not finalized yet.
 - When a new conclusion becomes canonical, update `spec/` or `design/` first and then update this section.
-- Multi-agent development should use Claude Code as the single local work console and call Codex through the official OpenAI Codex plugin for Claude Code. Codex output is advisory until curated into branch docs.
 
 ## Folder Roles
 

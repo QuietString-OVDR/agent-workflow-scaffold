@@ -1,5 +1,0 @@
-# multi-agent-setup-starter:begin
-.agent-work/*
-!.agent-work/.gitignore
-!.agent-work/README.md
-# multi-agent-setup-starter:end

@@ -9,10 +9,9 @@ Usage:
 
 Behavior:
   - Copy project-scoped Codex config if missing
-  - Copy .agent-work/, .claude/, docs/branches/_template/, docs/workflow/, and tools/agent/init-branch-docs.sh
-  - Create AGENTS.md if missing
-  - Append AGENTS.multi-agent.md block if AGENTS.md already exists and the block is not present
-  - Create CLAUDE.md and REVIEW.md if missing
+  - Copy .agent-work skeleton files, docs/branches/_template/, and tools/agent/init-branch-docs.sh
+  - Create AGENTS.md from AGENTS.branch-docs.md if missing
+  - Append AGENTS.branch-docs.md block if AGENTS.md already exists and the block is not present
   - Append .gitignore rules for .agent-work/ if missing
 EOF
 }
@@ -51,14 +50,26 @@ copy_tree_if_missing() {
 
 		mkdir -p "$(dirname "$target_file")"
 		cp "$source_file" "$target_file"
-	done < <(find "$source_dir" -type f | sort)
+	done < <(find "$source_dir" \( -path "$target_dir" -o -path "$target_dir/*" \) -prune -o -type f -print | sort)
+}
+
+copy_file_if_missing() {
+	local source_file="$1"
+	local target_file="$2"
+
+	if [[ -e "$target_file" ]]; then
+		return 0
+	fi
+
+	mkdir -p "$(dirname "$target_file")"
+	cp "$source_file" "$target_file"
 }
 
 main() {
 	local package_root
 	local target_repo
-	local agents_marker="<!-- multi-agent-setup-starter:begin -->"
-	local gitignore_marker="# multi-agent-setup-starter:begin"
+	local agents_marker="<!-- branch-docs-starter:begin -->"
+	local gitignore_marker="# branch-docs-starter:begin"
 
 	if [[ $# -ne 1 ]]; then
 		print_usage
@@ -83,15 +94,12 @@ main() {
 	mkdir -p \
 		"$target_repo/.codex" \
 		"$target_repo/.agent-work" \
-		"$target_repo/.claude" \
 		"$target_repo/docs/branches" \
-		"$target_repo/docs/workflow" \
 		"$target_repo/tools/agent"
 
-	copy_tree_if_missing "$package_root/.agent-work" "$target_repo/.agent-work"
-	copy_tree_if_missing "$package_root/.claude" "$target_repo/.claude"
+	copy_file_if_missing "$package_root/.agent-work/.gitignore" "$target_repo/.agent-work/.gitignore"
+	copy_file_if_missing "$package_root/.agent-work/README.md" "$target_repo/.agent-work/README.md"
 	copy_tree_if_missing "$package_root/docs/branches" "$target_repo/docs/branches"
-	copy_tree_if_missing "$package_root/docs/workflow" "$target_repo/docs/workflow"
 	copy_tree_if_missing "$package_root/tools/agent" "$target_repo/tools/agent"
 
 	if [[ ! -f "$target_repo/.codex/config.toml" ]]; then
@@ -102,38 +110,23 @@ main() {
 	fi
 
 	if [[ ! -f "$target_repo/AGENTS.md" ]]; then
-		cp "$package_root/AGENTS.md" "$target_repo/AGENTS.md"
+		{
+			printf '# Repository Guidelines\n\n'
+			cat "$package_root/AGENTS.branch-docs.md"
+		} > "$target_repo/AGENTS.md"
 		printf 'Created AGENTS.md in %s\n' "$target_repo"
 	else
-		if append_if_missing "$agents_marker" "$package_root/AGENTS.multi-agent.md" "$target_repo/AGENTS.md"; then
-			printf 'Merged multi-agent guidance into %s/AGENTS.md\n' "$target_repo"
+		if append_if_missing "$agents_marker" "$package_root/AGENTS.branch-docs.md" "$target_repo/AGENTS.md"; then
+			printf 'Merged branch docs guidance into %s/AGENTS.md\n' "$target_repo"
 		else
-			printf 'Skipped existing multi-agent guidance in %s/AGENTS.md\n' "$target_repo"
+			printf 'Skipped existing branch docs guidance in %s/AGENTS.md\n' "$target_repo"
 		fi
-	fi
-
-	if [[ ! -f "$target_repo/CLAUDE.md" ]]; then
-		cp "$package_root/CLAUDE.md" "$target_repo/CLAUDE.md"
-		printf 'Created CLAUDE.md in %s\n' "$target_repo"
-	else
-		if append_if_missing "$agents_marker" "$package_root/AGENTS.multi-agent.md" "$target_repo/CLAUDE.md"; then
-			printf 'Merged multi-agent guidance into %s/CLAUDE.md\n' "$target_repo"
-		else
-			printf 'Skipped existing multi-agent guidance in %s/CLAUDE.md\n' "$target_repo"
-		fi
-	fi
-
-	if [[ ! -f "$target_repo/REVIEW.md" ]]; then
-		cp "$package_root/REVIEW.md" "$target_repo/REVIEW.md"
-		printf 'Created REVIEW.md in %s\n' "$target_repo"
-	else
-		printf 'Skipped existing %s/REVIEW.md\n' "$target_repo"
 	fi
 
 	if append_if_missing "$gitignore_marker" "$package_root/.agent-work.gitignore.block" "$target_repo/.gitignore"; then
-		printf 'Appended .agent-work ignore block to %s/.gitignore\n' "$target_repo"
+		printf 'Appended branch-docs ignore block to %s/.gitignore\n' "$target_repo"
 	else
-		printf 'Skipped existing .agent-work ignore block in %s/.gitignore\n' "$target_repo"
+		printf 'Skipped existing branch-docs ignore block in %s/.gitignore\n' "$target_repo"
 	fi
 
 	printf 'Starter package installed into %s\n' "$target_repo"

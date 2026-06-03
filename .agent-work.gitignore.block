@@ -1,5 +1,12 @@
-# multi-agent-setup-starter:begin
+# branch-docs-starter:begin
+!/AGENTS.md
 .agent-work/*
 !.agent-work/.gitignore
 !.agent-work/README.md
-# multi-agent-setup-starter:end
+!/docs/
+!/docs/branches/
+!/docs/branches/**
+!/tools/
+!/tools/agent/
+!/tools/agent/init-branch-docs.sh
+# branch-docs-starter:end

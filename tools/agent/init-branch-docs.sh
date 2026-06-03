@@ -27,7 +27,74 @@ resolve_super_root() {
 		return
 	fi
 
-	git rev-parse --show-toplevel
+	if super_root="$(git rev-parse --show-toplevel 2>/dev/null)"; then
+		printf '%s\n' "$super_root"
+		return
+	fi
+
+	find_work_tree_root_fallback
+}
+
+find_work_tree_root_fallback() {
+	local dir="$PWD"
+
+	while [[ "$dir" != "/" ]]; do
+		if [[ -e "$dir/.git" ]]; then
+			printf '%s\n' "$dir"
+			return
+		fi
+
+		dir="$(dirname "$dir")"
+	done
+
+	printf 'Unable to resolve git work tree root from %s\n' "$PWD" >&2
+	exit 1
+}
+
+windows_path_to_wsl() {
+	local path="$1"
+	local drive
+	local rest
+
+	case "$path" in
+		[A-Za-z]:/*)
+			drive="$(printf '%s' "${path%%:*}" | tr '[:upper:]' '[:lower:]')"
+			rest="${path#?:/}"
+			printf '/mnt/%s/%s\n' "$drive" "$rest"
+			;;
+		*)
+			printf '%s\n' "$path"
+			;;
+	esac
+}
+
+resolve_git_dir_fallback() {
+	local super_root="$1"
+	local git_marker="$super_root/.git"
+	local git_dir
+
+	if [[ -d "$git_marker" ]]; then
+		printf '%s\n' "$git_marker"
+		return
+	fi
+
+	if [[ ! -f "$git_marker" ]]; then
+		printf 'Git marker not found: %s\n' "$git_marker" >&2
+		exit 1
+	fi
+
+	git_dir="$(sed -n 's/^gitdir: //p' "$git_marker" | head -n 1)"
+	if [[ -z "$git_dir" ]]; then
+		printf 'Unable to parse gitdir from %s\n' "$git_marker" >&2
+		exit 1
+	fi
+
+	git_dir="$(windows_path_to_wsl "$git_dir")"
+	if [[ "$git_dir" != /* ]]; then
+		git_dir="$super_root/$git_dir"
+	fi
+
+	printf '%s\n' "$git_dir"
 }
 
 normalize_branch_name() {
@@ -45,7 +112,7 @@ normalize_branch_name() {
 
 	branch_name="$raw"
 
-	if ! git check-ref-format --branch "$branch_name" >/dev/null 2>&1; then
+	if ! git -C / check-ref-format --branch "$branch_name" >/dev/null 2>&1; then
 		printf 'Invalid branch name: %s\n' "$1" >&2
 		exit 1
 	fi
@@ -73,8 +140,24 @@ sanitize_branch_dir_name() {
 detect_branch_from_repo() {
 	local super_root="$1"
 	local branch
+	local git_dir
+	local head_file
+	local head
 
-	branch="$(git -C "$super_root" branch --show-current)"
+	branch="$(git -C "$super_root" branch --show-current 2>/dev/null || true)"
+	if [[ -z "$branch" ]]; then
+		git_dir="$(resolve_git_dir_fallback "$super_root")"
+		head_file="$git_dir/HEAD"
+		if [[ -f "$head_file" ]]; then
+			head="$(sed -n '1p' "$head_file")"
+			case "$head" in
+				ref:\ refs/heads/*)
+					branch="${head#ref: refs/heads/}"
+					;;
+			esac
+		fi
+	fi
+
 	if [[ -z "$branch" ]]; then
 		printf 'Unable to detect current branch from %s\n' "$super_root" >&2
 		exit 1

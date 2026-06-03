@@ -3,7 +3,7 @@
 personality = "pragmatic"
 
 [profiles.branch]
-sandbox_mode = "read-only"
+sandbox_mode = "workspace-write"
 approval_policy = "on-request"
 model_reasoning_effort = "medium"
 

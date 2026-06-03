@@ -19,20 +19,20 @@ for %%I in ("%target_repo%") do set "target_repo=%%~fI"
 
 if not exist "%target_repo%\.codex\" mkdir "%target_repo%\.codex"
 if not exist "%target_repo%\.agent-work\" mkdir "%target_repo%\.agent-work"
-if not exist "%target_repo%\.claude\" mkdir "%target_repo%\.claude"
 if not exist "%target_repo%\docs\" mkdir "%target_repo%\docs"
 if not exist "%target_repo%\docs\branches\" mkdir "%target_repo%\docs\branches"
-if not exist "%target_repo%\docs\workflow\" mkdir "%target_repo%\docs\workflow"
 if not exist "%target_repo%\tools\" mkdir "%target_repo%\tools"
 if not exist "%target_repo%\tools\agent\" mkdir "%target_repo%\tools\agent"
 
-call :copy_tree_if_missing "%package_root%\.agent-work" "%target_repo%\.agent-work"
-if errorlevel 1 exit /b 1
-call :copy_tree_if_missing "%package_root%\.claude" "%target_repo%\.claude"
-if errorlevel 1 exit /b 1
+if not exist "%target_repo%\.agent-work\.gitignore" (
+	copy /y "%package_root%\.agent-work\.gitignore" "%target_repo%\.agent-work\.gitignore" >nul
+	if errorlevel 1 exit /b 1
+)
+if not exist "%target_repo%\.agent-work\README.md" (
+	copy /y "%package_root%\.agent-work\README.md" "%target_repo%\.agent-work\README.md" >nul
+	if errorlevel 1 exit /b 1
+)
 call :copy_tree_if_missing "%package_root%\docs\branches" "%target_repo%\docs\branches"
-if errorlevel 1 exit /b 1
-call :copy_tree_if_missing "%package_root%\docs\workflow" "%target_repo%\docs\workflow"
 if errorlevel 1 exit /b 1
 call :copy_tree_if_missing "%package_root%\tools\agent" "%target_repo%\tools\agent"
 if errorlevel 1 exit /b 1
@@ -45,42 +45,30 @@ if not exist "%target_repo%\.codex\config.toml" (
 	echo Skipped existing %target_repo%\.codex\config.toml
 )
 
-if not exist "%target_repo%\AGENTS.md" (
-	copy /y "%package_root%\AGENTS.md" "%target_repo%\AGENTS.md" >nul
-	if errorlevel 1 exit /b 1
-	echo Created AGENTS.md in %target_repo%
-) else (
-	call :append_if_missing "<!-- multi-agent-setup-starter:begin -->" "%package_root%\AGENTS.multi-agent.md" "%target_repo%\AGENTS.md"
-	if errorlevel 2 exit /b 1
-	if errorlevel 1 (
-		echo Skipped existing multi-agent guidance in %target_repo%\AGENTS.md
-	) else (
-		echo Merged multi-agent guidance into %target_repo%\AGENTS.md
-	)
-)
+if exist "%target_repo%\AGENTS.md" goto :merge_agents
+> "%target_repo%\AGENTS.md" echo(# Repository Guidelines|| exit /b 1
+>> "%target_repo%\AGENTS.md" echo(|| exit /b 1
+type "%package_root%\AGENTS.branch-docs.md" >> "%target_repo%\AGENTS.md" || exit /b 1
+echo Created AGENTS.md in %target_repo%
+goto :after_agents
 
-if not exist "%target_repo%\CLAUDE.md" (
-	copy /y "%package_root%\CLAUDE.md" "%target_repo%\CLAUDE.md" >nul
-	if errorlevel 1 exit /b 1
-	echo Created CLAUDE.md in %target_repo%
-) else (
-	echo Skipped existing %target_repo%\CLAUDE.md
-)
-
-if not exist "%target_repo%\REVIEW.md" (
-	copy /y "%package_root%\REVIEW.md" "%target_repo%\REVIEW.md" >nul
-	if errorlevel 1 exit /b 1
-	echo Created REVIEW.md in %target_repo%
-) else (
-	echo Skipped existing %target_repo%\REVIEW.md
-)
-
-call :append_if_missing "# multi-agent-setup-starter:begin" "%package_root%\.agent-work.gitignore.block" "%target_repo%\.gitignore"
+:merge_agents
+call :append_if_missing "branch-docs-starter:begin" "%package_root%\AGENTS.branch-docs.md" "%target_repo%\AGENTS.md"
 if errorlevel 2 exit /b 1
 if errorlevel 1 (
-	echo Skipped existing .agent-work ignore block in %target_repo%\.gitignore
+	echo Skipped existing branch docs guidance in %target_repo%\AGENTS.md
 ) else (
-	echo Appended .agent-work ignore block to %target_repo%\.gitignore
+	echo Merged branch docs guidance into %target_repo%\AGENTS.md
+)
+
+:after_agents
+
+call :append_if_missing "# branch-docs-starter:begin" "%package_root%\.agent-work.gitignore.block" "%target_repo%\.gitignore"
+if errorlevel 2 exit /b 1
+if errorlevel 1 (
+	echo Skipped existing branch-docs ignore block in %target_repo%\.gitignore
+) else (
+	echo Appended branch-docs ignore block to %target_repo%\.gitignore
 )
 
 echo Starter package installed into %target_repo%
@@ -89,13 +77,12 @@ exit /b 0
 :print_usage
 echo Usage:
 echo   install-to-repo.bat ^<path-to-target-repo^>
-echo(
+echo.
 echo Behavior:
 echo   - Copy project-scoped Codex config if missing
-echo   - Copy .agent-work/, .claude\, docs\branches\_template\, docs\workflow\, and tools\agent\init-branch-docs.sh
-echo   - Create AGENTS.md if missing
-echo   - Append AGENTS.multi-agent.md block if AGENTS.md already exists and the block is not present
-echo   - Create CLAUDE.md and REVIEW.md if missing
+echo   - Copy .agent-work skeleton files, docs\branches\_template\, and tools\agent\init-branch-docs.sh
+echo   - Create AGENTS.md from AGENTS.branch-docs.md if missing
+echo   - Append AGENTS.branch-docs.md block if AGENTS.md already exists and the block is not present
 echo   - Append .gitignore rules for .agent-work/ if missing
 exit /b 0
 
@@ -113,30 +100,34 @@ set "marker=%~1"
 set "source_file=%~2"
 set "target_file=%~3"
 
-if exist "%target_file%" (
-	findstr /L /C:"%marker%" "%target_file%" >nul 2>&1
-	if not errorlevel 1 (
-		endlocal & exit /b 1
-	)
-	>> "%target_file%" echo(
-	if errorlevel 1 (
-		endlocal & exit /b 2
-	)
-	type "%source_file%" >> "%target_file%"
-	if errorlevel 1 (
-		endlocal & exit /b 2
-	)
-) else (
-	type "%source_file%" > "%target_file%"
-	if errorlevel 1 (
-		endlocal & exit /b 2
-	)
-)
+if not exist "%target_file%" goto :append_if_missing_create_file
 
+set "findstr_path=%SystemRoot%\System32\findstr.exe"
+if exist "%findstr_path%" goto :append_if_missing_use_findstr_path
+findstr /L /C:"%marker%" "%target_file%" >nul 2>&1
+goto :append_if_missing_after_findstr
+
+:append_if_missing_use_findstr_path
+"%findstr_path%" /L /C:"%marker%" "%target_file%" >nul 2>&1
+
+:append_if_missing_after_findstr
+if errorlevel 1 goto :append_if_missing_append_existing
+endlocal & exit /b 1
+
+:append_if_missing_append_existing
+>> "%target_file%" echo(|| goto :append_if_missing_failed
+type "%source_file%" >> "%target_file%" || goto :append_if_missing_failed
 endlocal & exit /b 0
 
+:append_if_missing_create_file
+type "%source_file%" > "%target_file%" || goto :append_if_missing_failed
+endlocal & exit /b 0
+
+:append_if_missing_failed
+endlocal & exit /b 2
+
 :copy_tree_if_missing
-setlocal EnableExtensions DisableDelayedExpansion
+setlocal EnableExtensions EnableDelayedExpansion
 set "source_dir=%~f1"
 set "target_dir=%~f2"
 
