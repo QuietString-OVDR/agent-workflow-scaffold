@@ -9,28 +9,72 @@ Usage:
 
 Behavior:
   - Copy project-scoped Codex config if missing
-  - Copy .agent-work skeleton files, docs/branches/_template/, and tools/agent/init-branch-docs.sh
+  - Copy .agent-work skeleton files and local-only branch docs files under docs/
   - Create AGENTS.md from AGENTS.branch-docs.md if missing
-  - Append AGENTS.branch-docs.md block if AGENTS.md already exists and the block is not present
-  - Append .gitignore rules for .agent-work/ if missing
+  - Append or replace the marked AGENTS.branch-docs.md block if AGENTS.md already exists
+  - Append or replace .gitignore rules for local-only starter files and .agent-work/
+  - Remove the old tools/agent/init-branch-docs.sh helper if present
 EOF
 }
 
-append_if_missing() {
-	local marker="$1"
-	local source_file="$2"
-	local target_file="$3"
+upsert_marked_block() {
+	local begin_marker="$1"
+	local end_marker="$2"
+	local source_file="$3"
+	local target_file="$4"
+	local tmp_file
 
-	if grep -Fq "$marker" "$target_file" 2>/dev/null; then
-		return 1
+	if [[ ! -f "$target_file" ]]; then
+		cp "$source_file" "$target_file"
+		return 2
 	fi
 
-	if [[ -f "$target_file" ]]; then
+	if grep -Fxq "$begin_marker" "$target_file"; then
+		tmp_file="$(mktemp "$upsert_temp_dir/branch-docs-upsert.XXXXXX")"
+		if ! awk -v begin="$begin_marker" -v end="$end_marker" -v block_file="$source_file" '
+			BEGIN {
+				while ((getline line < block_file) > 0) {
+					block = block line ORS
+				}
+				close(block_file)
+				in_block = 0
+				replaced = 0
+			}
+			$0 == begin {
+				if (!replaced) {
+					printf "%s", block
+					replaced = 1
+				}
+				in_block = 1
+				next
+			}
+			in_block && $0 == end {
+				in_block = 0
+				next
+			}
+			!in_block {
+				print
+			}
+			END {
+				if (!replaced || in_block) {
+					exit 3
+				}
+			}
+		' "$target_file" > "$tmp_file"; then
+			rm -f "$tmp_file"
+			return 3
+		fi
+		mv "$tmp_file" "$target_file"
+		return 0
+	fi
+
+	if [[ -s "$target_file" ]] && [[ "$(tail -c 1 "$target_file")" != $'\n' ]]; then
 		printf '\n' >> "$target_file"
 	fi
 
+	printf '\n' >> "$target_file"
 	cat "$source_file" >> "$target_file"
-	return 0
+	return 1
 }
 
 copy_tree_if_missing() {
@@ -69,7 +113,10 @@ main() {
 	local package_root
 	local target_repo
 	local agents_marker="<!-- branch-docs-starter:begin -->"
+	local agents_end_marker="<!-- branch-docs-starter:end -->"
 	local gitignore_marker="# branch-docs-starter:begin"
+	local gitignore_end_marker="# branch-docs-starter:end"
+	local upsert_result
 
 	if [[ $# -ne 1 ]]; then
 		print_usage
@@ -94,13 +141,18 @@ main() {
 	mkdir -p \
 		"$target_repo/.codex" \
 		"$target_repo/.agent-work" \
-		"$target_repo/docs/branches" \
-		"$target_repo/tools/agent"
+		"$target_repo/docs"
 
 	copy_file_if_missing "$package_root/.agent-work/.gitignore" "$target_repo/.agent-work/.gitignore"
 	copy_file_if_missing "$package_root/.agent-work/README.md" "$target_repo/.agent-work/README.md"
-	copy_tree_if_missing "$package_root/docs/branches" "$target_repo/docs/branches"
-	copy_tree_if_missing "$package_root/tools/agent" "$target_repo/tools/agent"
+	copy_tree_if_missing "$package_root/docs" "$target_repo/docs"
+
+	if [[ -f "$target_repo/tools/agent/init-branch-docs.sh" ]]; then
+		rm -f "$target_repo/tools/agent/init-branch-docs.sh"
+		printf 'Removed old tools/agent/init-branch-docs.sh from %s\n' "$target_repo"
+		rmdir "$target_repo/tools/agent" 2>/dev/null || true
+		rmdir "$target_repo/tools" 2>/dev/null || true
+	fi
 
 	if [[ ! -f "$target_repo/.codex/config.toml" ]]; then
 		cp "$package_root/.codex/config.toml" "$target_repo/.codex/config.toml"
@@ -116,17 +168,35 @@ main() {
 		} > "$target_repo/AGENTS.md"
 		printf 'Created AGENTS.md in %s\n' "$target_repo"
 	else
-		if append_if_missing "$agents_marker" "$package_root/AGENTS.branch-docs.md" "$target_repo/AGENTS.md"; then
+		upsert_temp_dir="$target_repo/.agent-work"
+		set +e
+		upsert_marked_block "$agents_marker" "$agents_end_marker" "$package_root/AGENTS.branch-docs.md" "$target_repo/AGENTS.md"
+		upsert_result=$?
+		set -e
+		if [[ "$upsert_result" -eq 0 ]]; then
+			printf 'Updated branch docs guidance in %s/AGENTS.md\n' "$target_repo"
+		elif [[ "$upsert_result" -eq 1 ]]; then
 			printf 'Merged branch docs guidance into %s/AGENTS.md\n' "$target_repo"
 		else
-			printf 'Skipped existing branch docs guidance in %s/AGENTS.md\n' "$target_repo"
+			printf 'Unable to update branch docs guidance in %s/AGENTS.md\n' "$target_repo" >&2
+			exit 1
 		fi
 	fi
 
-	if append_if_missing "$gitignore_marker" "$package_root/.agent-work.gitignore.block" "$target_repo/.gitignore"; then
+	upsert_temp_dir="$target_repo/.agent-work"
+	set +e
+	upsert_marked_block "$gitignore_marker" "$gitignore_end_marker" "$package_root/.agent-work.gitignore.block" "$target_repo/.gitignore"
+	upsert_result=$?
+	set -e
+	if [[ "$upsert_result" -eq 0 ]]; then
+		printf 'Updated branch-docs ignore block in %s/.gitignore\n' "$target_repo"
+	elif [[ "$upsert_result" -eq 1 ]]; then
 		printf 'Appended branch-docs ignore block to %s/.gitignore\n' "$target_repo"
+	elif [[ "$upsert_result" -eq 2 ]]; then
+		printf 'Created branch-docs ignore block in %s/.gitignore\n' "$target_repo"
 	else
-		printf 'Skipped existing branch-docs ignore block in %s/.gitignore\n' "$target_repo"
+		printf 'Unable to update branch-docs ignore block in %s/.gitignore\n' "$target_repo" >&2
+		exit 1
 	fi
 
 	printf 'Starter package installed into %s\n' "$target_repo"

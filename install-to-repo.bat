@@ -20,9 +20,6 @@ for %%I in ("%target_repo%") do set "target_repo=%%~fI"
 if not exist "%target_repo%\.codex\" mkdir "%target_repo%\.codex"
 if not exist "%target_repo%\.agent-work\" mkdir "%target_repo%\.agent-work"
 if not exist "%target_repo%\docs\" mkdir "%target_repo%\docs"
-if not exist "%target_repo%\docs\branches\" mkdir "%target_repo%\docs\branches"
-if not exist "%target_repo%\tools\" mkdir "%target_repo%\tools"
-if not exist "%target_repo%\tools\agent\" mkdir "%target_repo%\tools\agent"
 
 if not exist "%target_repo%\.agent-work\.gitignore" (
 	copy /y "%package_root%\.agent-work\.gitignore" "%target_repo%\.agent-work\.gitignore" >nul
@@ -32,10 +29,16 @@ if not exist "%target_repo%\.agent-work\README.md" (
 	copy /y "%package_root%\.agent-work\README.md" "%target_repo%\.agent-work\README.md" >nul
 	if errorlevel 1 exit /b 1
 )
-call :copy_tree_if_missing "%package_root%\docs\branches" "%target_repo%\docs\branches"
+call :copy_tree_if_missing "%package_root%\docs" "%target_repo%\docs"
 if errorlevel 1 exit /b 1
-call :copy_tree_if_missing "%package_root%\tools\agent" "%target_repo%\tools\agent"
-if errorlevel 1 exit /b 1
+
+if exist "%target_repo%\tools\agent\init-branch-docs.sh" (
+	del /f /q "%target_repo%\tools\agent\init-branch-docs.sh" >nul
+	if errorlevel 1 exit /b 1
+	echo Removed old tools\agent\init-branch-docs.sh from %target_repo%
+	2>nul rmdir "%target_repo%\tools\agent"
+	2>nul rmdir "%target_repo%\tools"
+)
 
 if not exist "%target_repo%\.codex\config.toml" (
 	copy /y "%package_root%\.codex\config.toml" "%target_repo%\.codex\config.toml" >nul
@@ -53,23 +56,20 @@ echo Created AGENTS.md in %target_repo%
 goto :after_agents
 
 :merge_agents
-call :append_if_missing "branch-docs-starter:begin" "%package_root%\AGENTS.branch-docs.md" "%target_repo%\AGENTS.md"
-if errorlevel 2 exit /b 1
-if errorlevel 1 (
-	echo Skipped existing branch docs guidance in %target_repo%\AGENTS.md
-) else (
-	echo Merged branch docs guidance into %target_repo%\AGENTS.md
-)
+call :upsert_marked_block "<!-- branch-docs-starter:begin -->" "<!-- branch-docs-starter:end -->" "%package_root%\AGENTS.branch-docs.md" "%target_repo%\AGENTS.md"
+set "agents_result=%errorlevel%"
+if %agents_result% GEQ 3 exit /b 1
+if %agents_result% EQU 0 echo Updated branch docs guidance in %target_repo%\AGENTS.md
+if %agents_result% EQU 1 echo Merged branch docs guidance into %target_repo%\AGENTS.md
 
 :after_agents
 
-call :append_if_missing "# branch-docs-starter:begin" "%package_root%\.agent-work.gitignore.block" "%target_repo%\.gitignore"
-if errorlevel 2 exit /b 1
-if errorlevel 1 (
-	echo Skipped existing branch-docs ignore block in %target_repo%\.gitignore
-) else (
-	echo Appended branch-docs ignore block to %target_repo%\.gitignore
-)
+call :upsert_marked_block "# branch-docs-starter:begin" "# branch-docs-starter:end" "%package_root%\.agent-work.gitignore.block" "%target_repo%\.gitignore"
+set "gitignore_result=%errorlevel%"
+if %gitignore_result% GEQ 3 exit /b 1
+if %gitignore_result% EQU 0 echo Updated branch-docs ignore block in %target_repo%\.gitignore
+if %gitignore_result% EQU 1 echo Appended branch-docs ignore block to %target_repo%\.gitignore
+if %gitignore_result% EQU 2 echo Created branch-docs ignore block in %target_repo%\.gitignore
 
 echo Starter package installed into %target_repo%
 exit /b 0
@@ -80,10 +80,11 @@ echo   install-to-repo.bat ^<path-to-target-repo^>
 echo.
 echo Behavior:
 echo   - Copy project-scoped Codex config if missing
-echo   - Copy .agent-work skeleton files, docs\branches\_template\, and tools\agent\init-branch-docs.sh
+echo   - Copy .agent-work skeleton files and local-only branch docs files under docs\
 echo   - Create AGENTS.md from AGENTS.branch-docs.md if missing
-echo   - Append AGENTS.branch-docs.md block if AGENTS.md already exists and the block is not present
-echo   - Append .gitignore rules for .agent-work/ if missing
+echo   - Append or replace the marked AGENTS.branch-docs.md block if AGENTS.md already exists
+echo   - Append or replace .gitignore rules for local-only starter files and .agent-work/
+echo   - Remove the old tools\agent\init-branch-docs.sh helper if present
 exit /b 0
 
 :print_usage_ok
@@ -94,37 +95,20 @@ exit /b 0
 call :print_usage
 exit /b 1
 
-:append_if_missing
+:upsert_marked_block
 setlocal EnableExtensions DisableDelayedExpansion
-set "marker=%~1"
-set "source_file=%~2"
-set "target_file=%~3"
+set "UPSERT_BEGIN=%~1"
+set "UPSERT_END=%~2"
+set "UPSERT_SOURCE=%~3"
+set "UPSERT_TARGET=%~4"
+set "powershell_path=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 
-if not exist "%target_file%" goto :append_if_missing_create_file
-
-set "findstr_path=%SystemRoot%\System32\findstr.exe"
-if exist "%findstr_path%" goto :append_if_missing_use_findstr_path
-findstr /L /C:"%marker%" "%target_file%" >nul 2>&1
-goto :append_if_missing_after_findstr
-
-:append_if_missing_use_findstr_path
-"%findstr_path%" /L /C:"%marker%" "%target_file%" >nul 2>&1
-
-:append_if_missing_after_findstr
-if errorlevel 1 goto :append_if_missing_append_existing
-endlocal & exit /b 1
-
-:append_if_missing_append_existing
->> "%target_file%" echo(|| goto :append_if_missing_failed
-type "%source_file%" >> "%target_file%" || goto :append_if_missing_failed
-endlocal & exit /b 0
-
-:append_if_missing_create_file
-type "%source_file%" > "%target_file%" || goto :append_if_missing_failed
-endlocal & exit /b 0
-
-:append_if_missing_failed
-endlocal & exit /b 2
+if exist "%powershell_path%" (
+	"%powershell_path%" -NoProfile -ExecutionPolicy Bypass -Command "$begin=$env:UPSERT_BEGIN; $end=$env:UPSERT_END; $source=$env:UPSERT_SOURCE; $target=$env:UPSERT_TARGET; $enc=New-Object System.Text.UTF8Encoding $false; $block=[IO.File]::ReadAllText($source); if ([IO.File]::Exists($target)) { $text=[IO.File]::ReadAllText($target); $start=$text.IndexOf($begin); if ($start -ge 0) { $finish=$text.IndexOf($end,$start); if ($finish -lt 0) { Write-Error 'End marker not found'; exit 3 }; $finish += $end.Length; $text=$text.Substring(0,$start)+$block+$text.Substring($finish); [IO.File]::WriteAllText($target,$text,$enc); exit 0 } else { if ($text.Length -gt 0 -and -not $text.EndsWith([string][char]10)) { $text += [Environment]::NewLine }; $text += [Environment]::NewLine + $block; [IO.File]::WriteAllText($target,$text,$enc); exit 1 } } else { [IO.File]::WriteAllText($target,$block,$enc); exit 2 }"
+) else (
+	powershell -NoProfile -ExecutionPolicy Bypass -Command "$begin=$env:UPSERT_BEGIN; $end=$env:UPSERT_END; $source=$env:UPSERT_SOURCE; $target=$env:UPSERT_TARGET; $enc=New-Object System.Text.UTF8Encoding $false; $block=[IO.File]::ReadAllText($source); if ([IO.File]::Exists($target)) { $text=[IO.File]::ReadAllText($target); $start=$text.IndexOf($begin); if ($start -ge 0) { $finish=$text.IndexOf($end,$start); if ($finish -lt 0) { Write-Error 'End marker not found'; exit 3 }; $finish += $end.Length; $text=$text.Substring(0,$start)+$block+$text.Substring($finish); [IO.File]::WriteAllText($target,$text,$enc); exit 0 } else { if ($text.Length -gt 0 -and -not $text.EndsWith([string][char]10)) { $text += [Environment]::NewLine }; $text += [Environment]::NewLine + $block; [IO.File]::WriteAllText($target,$text,$enc); exit 1 } } else { [IO.File]::WriteAllText($target,$block,$enc); exit 2 }"
+)
+endlocal & exit /b %errorlevel%
 
 :copy_tree_if_missing
 setlocal EnableExtensions EnableDelayedExpansion

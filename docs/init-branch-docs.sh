@@ -5,10 +5,10 @@ set -euo pipefail
 print_usage() {
 	cat <<'EOF'
 Usage:
-  bash ./tools/agent/init-branch-docs.sh [branch-name]
-  bash ./tools/agent/init-branch-docs.sh --print-branch [branch-name]
-  bash ./tools/agent/init-branch-docs.sh --print-doc-dir [branch-name]
-  bash ./tools/agent/init-branch-docs.sh --sync-missing [branch-name]
+  bash ./docs/init-branch-docs.sh [branch-name]
+  bash ./docs/init-branch-docs.sh --print-branch [branch-name]
+  bash ./docs/init-branch-docs.sh --print-doc-dir [branch-name]
+  bash ./docs/init-branch-docs.sh --sync-missing [branch-name]
 
 Behavior:
   - If branch-name is omitted, infer it from the current repo or super project branch.

@@ -1,12 +1,9 @@
 # branch-docs-starter:begin
-!/AGENTS.md
+/AGENTS.md
+/.codex/
+/docs/
+!/.agent-work/
 .agent-work/*
 !.agent-work/.gitignore
 !.agent-work/README.md
-!/docs/
-!/docs/branches/
-!/docs/branches/**
-!/tools/
-!/tools/agent/
-!/tools/agent/init-branch-docs.sh
 # branch-docs-starter:end

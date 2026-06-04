@@ -15,7 +15,8 @@
 - When working inside a nested repo or submodule, resolve the super project root first and infer the branch from there.
 - When deriving `<branch-doc-dir>`, replace `/` with `~` so branch docs remain Windows-safe. For example, `sandbox/ovdr-4397` maps to `docs/branches/sandbox~ovdr-4397/`.
 - If `./docs/branches/<branch-doc-dir>/README.md` exists, read it first and treat it as the canonical documentation entrypoint for the branch.
-- If the branch doc root does not exist, initialize it from `./docs/branches/_template/` or by running `bash ./tools/agent/init-branch-docs.sh`.
+- If the branch doc root does not exist, initialize it from `./docs/branches/_template/` or by running `bash ./docs/init-branch-docs.sh` in WSL/Linux or in native Windows only when `bash` is available.
+- In native Windows PowerShell where `bash` is unavailable, do not call plain `bash`; use `wsl.exe` only if available, or create the required branch doc files manually under `./docs/branches/<branch-doc-dir>/`.
 - For code changes on a branch, update `status/implementation-status.md` and `status/code-map.md` in the same turn unless the user explicitly says not to.
 - For architecture, technical spec, rollout plan, or handoff requests, write the result into the branch doc root under `spec/`, `design/`, or `plans/` instead of leaving the result only in chat.
 - Treat `backup/` as read-only reference material unless the user explicitly requests edits there.
@@ -23,9 +24,11 @@
 - Keep generated helpers, logs, scratch outputs, and temporary artifacts under `./.agent-work/`.
 
 ## Branch Documentation Git Policy
+- Branch-docs-starter-installed files in target work repositories are personal local agent setup and must not be committed unless the user explicitly asks.
+- `AGENTS.md`, `.codex/`, and `docs/**` are intentionally local-only in target work repositories.
 - `docs/branches/**` is local-only agent working context and is intentionally ignored by Git.
-- Do not force-add branch docs unless the user explicitly asks.
-- Do not change `.gitignore` to make branch docs trackable unless the user explicitly asks.
+- Do not force-add branch-docs-starter files or branch docs unless the user explicitly asks.
+- Do not change `.gitignore` to make branch-docs-starter files or branch docs trackable unless the user explicitly asks.
 - Agents should still read and update `docs/branches/<branch-doc-dir>/` as local working memory.
 - Do not rely on `git status` to confirm branch-doc updates; verify with filesystem reads instead.
 
