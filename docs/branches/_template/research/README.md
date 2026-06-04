@@ -5,4 +5,4 @@ This directory stores investigation logs, external references, experiment result
 Rules:
 
 - Use this folder as reference material only.
-- Move canonical contracts and current-system descriptions into `spec/`, `design/`, or `status/`.
+- Move canonical contracts and current-system descriptions into `spec/`, `architecture/`, or `status/`.

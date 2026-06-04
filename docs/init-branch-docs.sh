@@ -265,11 +265,14 @@ main() {
 
 	mkdir -p \
 		"$doc_root/spec" \
-		"$doc_root/design" \
+		"$doc_root/architecture" \
 		"$doc_root/status" \
 		"$doc_root/plans" \
+		"$doc_root/share/guides" \
+		"$doc_root/share/specs" \
 		"$doc_root/research" \
 		"$doc_root/archive" \
+		"$doc_root/archive/plans" \
 		"$doc_root/backup"
 
 	while IFS= read -r template_file; do

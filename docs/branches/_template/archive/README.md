@@ -5,4 +5,4 @@ This directory is a non-canonical area for old ideas, historical session notes, 
 Rules:
 
 - Do not treat anything here as canonical by default.
-- If something here conflicts with the current state, prefer `README.md`, `spec/`, `status/`, `design/`, and `plans/`.
+- If something here conflicts with the current state, prefer `README.md`, `spec/`, `architecture/`, `status/`, `plans/`, and `share/`.

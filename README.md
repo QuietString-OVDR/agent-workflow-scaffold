@@ -9,8 +9,12 @@ Core rules:
 - In target work repositories, branch-docs-starter-installed files are personal local setup and should stay ignored by Git
 - Generated artifacts, scratch files, downloads, logs, and temporary outputs live under `./.agent-work/`
 - `./.codex/` is reserved for project-scoped Codex configuration files
-- Branch docs and agent replies must always be written in English
+- Agent replies and internal branch docs must be written in English
+- Share docs under `share/` may use the target audience's language when explicitly requested
 - Before code lookup, agents must read the branch README and `status/code-map.md` and use the code map as the first search index
+- Current architecture lives in `architecture/current-architecture.md`; agents update that file instead of creating additional architecture drafts by default
+- Teammate-facing or externally shareable documents live under `share/<doc-type>/`, such as `share/guides/` and `share/specs/`
+- Implementation plans are lifecycle-managed through `plans/README.md`, `plans/active.md`, and `archive/plans/`
 
 This layout reflects the OpenAI Codex guidance for `workspace-write` sandboxes, where `.codex/` is treated as a protected path.
 
@@ -79,6 +83,28 @@ bash ./docs/init-branch-docs.sh --sync-missing
 ```
 
 4. Before source investigation or code edits, read the branch README and `status/code-map.md`. Use `Search First` entries before any broad content search.
+5. Before creating a new plan, read `plans/README.md` and update `plans/active.md` or an existing topic plan unless the work is a distinct new workstream.
+
+## Branch Doc Structure
+
+New branch roots use this shape:
+
+- `status/`
+  - Current progress, accepted decisions, implementation log, and code lookup map
+- `spec/`
+  - Canonical technical contracts and requirements
+- `architecture/`
+  - Current implementation structure; default canonical file is `current-architecture.md`
+- `plans/`
+  - Active implementation planning and next-agent handoff only
+- `share/`
+  - Polished teammate-facing documents grouped by document type, such as `guides/` and `specs/`
+- `research/`
+  - Investigation notes and reference material
+- `archive/`
+  - Superseded, implemented, or parked documents, including old plans under `archive/plans/`
+- `backup/`
+  - User-kept safe copies; read-only unless explicitly requested
 
 ## Notes
 
@@ -92,3 +118,4 @@ bash ./docs/init-branch-docs.sh --sync-missing
 - The package does not overwrite existing branch docs
 - Execution bits are not guaranteed in this environment, so prefer `bash <script>`
 - `_template/` is a starter only and is never a canonical branch doc root
+- Older branch roots may still contain `design/`; new roots use `architecture/` instead, and agents should migrate current-system content into `architecture/current-architecture.md` when practical

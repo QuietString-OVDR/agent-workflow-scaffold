@@ -1,7 +1,8 @@
 <!-- branch-docs-starter:begin -->
 ## Language Policy
-- Always write branch docs, specs, plans, handoff notes, research notes, and agent replies in English.
-- If the user writes in Korean or another language, interpret the request but still respond and document in English unless the user explicitly asks to override this policy.
+- Always write agent replies and internal branch docs in English, including `README.md`, `status/`, `spec/`, `architecture/`, `plans/`, and `research/`.
+- If the user writes in Korean or another language, interpret the request but still respond and document internal branch memory in English unless the user explicitly asks to override this policy.
+- Share docs under `share/` may use the target audience's language when the user explicitly requests a teammate-facing or externally shareable document in that language.
 
 ## Working Files
 - Always create and use `./.agent-work/` for generated artifacts, scratch files, downloads, logs, and temporary outputs.
@@ -18,7 +19,14 @@
 - If the branch doc root does not exist, initialize it from `./docs/branches/_template/` or by running `bash ./docs/init-branch-docs.sh` in WSL/Linux or in native Windows only when `bash` is available.
 - In native Windows PowerShell where `bash` is unavailable, do not call plain `bash`; use `wsl.exe` only if available, or create the required branch doc files manually under `./docs/branches/<branch-doc-dir>/`.
 - For code changes on a branch, update `status/implementation-status.md` and `status/code-map.md` in the same turn unless the user explicitly says not to.
-- For architecture, technical spec, rollout plan, or handoff requests, write the result into the branch doc root under `spec/`, `design/`, or `plans/` instead of leaving the result only in chat.
+- For accepted decisions that affect future work, update `status/decisions.md` or the relevant canonical `spec/` section.
+- For current architecture documentation, update `architecture/current-architecture.md`; do not create additional `architecture/*.md` files unless the branch README explicitly declares them canonical.
+- For technical specs, update or create the relevant contract document under `spec/`.
+- For implementation plans, read `plans/README.md` first and update `plans/active.md` or an existing topic plan by default. Create a new plan file only for a distinct workstream that is not already covered.
+- For handoff requests, update `plans/next-agent-handoff.md`.
+- For teammate-facing or externally shareable documents, write under `share/<doc-type>/`, such as `share/guides/` or `share/specs/`. Do not place polished share docs in `spec/`, `architecture/`, or `plans/` unless they are also the canonical branch source.
+- For architecture, technical spec, rollout plan, share-doc, or handoff requests, write the result into the branch doc root instead of leaving the result only in chat.
+- When a plan is implemented, superseded, or no longer active, update its lifecycle metadata and move or summarize it under `archive/plans/` so stale plans do not remain equally visible.
 - Treat `backup/` as read-only reference material unless the user explicitly requests edits there.
 - Treat `archive/` and `research/` as non-canonical unless the branch README says otherwise.
 - Keep generated helpers, logs, scratch outputs, and temporary artifacts under `./.agent-work/`.
