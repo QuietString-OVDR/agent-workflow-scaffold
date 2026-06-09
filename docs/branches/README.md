@@ -9,7 +9,7 @@ Structure:
 - `<branch-doc-dir>/`
   - The actual canonical doc root for a branch
   - Current architecture lives in `architecture/current-architecture.md`
-  - Teammate-facing documents live in `share/<doc-type>/`, such as `share/guides/` and `share/specs/`
+  - Teammate-facing documents live in `share/<doc-type>/`, such as `share/guides/` and `share/specs/`, and must be written in Korean
 
 Workflow:
 
@@ -27,7 +27,7 @@ Notes:
 - This `docs/` tree is personal local agent setup in target work repositories and is intentionally ignored by Git.
 - `_template/` is never a canonical document source
 - `archive/`, `research/`, and `backup/` are not the source of truth unless the branch README explicitly says otherwise
-- Branch docs in this tree should always be written in English
-- `share/` documents may use the audience's requested language when the user explicitly asks for a shareable non-English document
+- Branch docs in this tree should always be written in English, except for `share/` documents
+- `share/` documents must be written in Korean
 - Legacy ticket-scoped docs should be migrated into a branch doc root instead of kept in a separate canonical tree
 - Older branch roots may still contain `design/`; new branch roots use `architecture/`

@@ -42,6 +42,7 @@ The Windows-safe folder name for this branch is `__BRANCH_DOC_DIR_NAME__`.
 - `share/`
   - Polished teammate-facing documents grouped by document type, such as `guides/` and `specs/`.
   - Use this for Confluence-ready, review-ready, or cross-team documents.
+  - Documents in this folder must be written in Korean.
 - `research/`
   - Reference research material. Not a contract document.
 - `archive/`
@@ -63,4 +64,4 @@ The Windows-safe folder name for this branch is `__BRANCH_DOC_DIR_NAME__`.
 - Keep `plans/active.md` or the relevant existing topic plan current; do not create near-duplicate plan files for the same workstream.
 - Do not mix unimplemented ideas or alternative designs into current-system descriptions.
 - Internal branch memory should be written in English.
-- Share docs under `share/` may use the target audience's language when explicitly requested.
+- Share docs under `share/` must be written in Korean.

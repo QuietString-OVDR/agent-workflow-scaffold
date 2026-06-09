@@ -2,7 +2,7 @@
 ## Language Policy
 - Always write agent replies and internal branch docs in English, including `README.md`, `status/`, `spec/`, `architecture/`, `plans/`, and `research/`.
 - If the user writes in Korean or another language, interpret the request but still respond and document internal branch memory in English unless the user explicitly asks to override this policy.
-- Share docs under `share/` may use the target audience's language when the user explicitly requests a teammate-facing or externally shareable document in that language.
+- Write share docs under `share/` in Korean, including teammate-facing and externally shareable documents.
 
 ## Working Files
 - Always create and use `./.agent-work/` for generated artifacts, scratch files, downloads, logs, and temporary outputs.
@@ -24,7 +24,7 @@
 - For technical specs, update or create the relevant contract document under `spec/`.
 - For implementation plans, read `plans/README.md` first and update `plans/active.md` or an existing topic plan by default. Create a new plan file only for a distinct workstream that is not already covered.
 - For handoff requests, update `plans/next-agent-handoff.md`.
-- For teammate-facing or externally shareable documents, write under `share/<doc-type>/`, such as `share/guides/` or `share/specs/`. Do not place polished share docs in `spec/`, `architecture/`, or `plans/` unless they are also the canonical branch source.
+- For teammate-facing or externally shareable documents, write under `share/<doc-type>/`, such as `share/guides/` or `share/specs/`, and write the document in Korean. Do not place polished share docs in `spec/`, `architecture/`, or `plans/` unless they are also the canonical branch source.
 - For architecture, technical spec, rollout plan, share-doc, or handoff requests, write the result into the branch doc root instead of leaving the result only in chat.
 - When a plan is implemented, superseded, or no longer active, update its lifecycle metadata and move or summarize it under `archive/plans/` so stale plans do not remain equally visible.
 - Treat `backup/` as read-only reference material unless the user explicitly requests edits there.

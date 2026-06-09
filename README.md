@@ -10,7 +10,7 @@ Core rules:
 - Generated artifacts, scratch files, downloads, logs, and temporary outputs live under `./.agent-work/`
 - `./.codex/` is reserved for project-scoped Codex configuration files
 - Agent replies and internal branch docs must be written in English
-- Share docs under `share/` may use the target audience's language when explicitly requested
+- Share docs under `share/` must be written in Korean
 - Before code lookup, agents must read the branch README and `status/code-map.md` and use the code map as the first search index
 - Current architecture lives in `architecture/current-architecture.md`; agents update that file instead of creating additional architecture drafts by default
 - Teammate-facing or externally shareable documents live under `share/<doc-type>/`, such as `share/guides/` and `share/specs/`
@@ -98,7 +98,7 @@ New branch roots use this shape:
 - `plans/`
   - Active implementation planning and next-agent handoff only
 - `share/`
-  - Polished teammate-facing documents grouped by document type, such as `guides/` and `specs/`
+  - Polished teammate-facing documents grouped by document type, such as `guides/` and `specs/`; these documents must be written in Korean
 - `research/`
   - Investigation notes and reference material
 - `archive/`
