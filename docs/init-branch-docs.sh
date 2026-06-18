@@ -12,8 +12,9 @@ Usage:
 
 Behavior:
   - If branch-name is omitted, infer it from the current repo or super project branch.
-  - The full branch name is the documentation key; no separate work identifier is derived.
-  - `./docs/branches/<branch-doc-dir>/` uses the branch name with `/` replaced by `~`.
+  - The documentation key is the branch name after removing a trailing build-test suffix
+    such as `-b`, `-bb`, or `-bbb`.
+  - `./docs/branches/<branch-doc-dir>/` uses the documentation key with `/` replaced by `~`.
   - Existing files are never overwritten.
 EOF
 }
@@ -120,6 +121,17 @@ normalize_branch_name() {
 	printf '%s\n' "$branch_name"
 }
 
+derive_documentation_branch_name() {
+	local branch_name="$1"
+
+	if [[ "$branch_name" =~ ^(.+)-b+$ ]]; then
+		printf '%s\n' "${BASH_REMATCH[1]}"
+		return
+	fi
+
+	printf '%s\n' "$branch_name"
+}
+
 sanitize_branch_dir_name() {
 	local branch_name="$1"
 	local branch_doc_dir="$branch_name"
@@ -193,6 +205,7 @@ main() {
 	local print_doc_dir_only="false"
 	local input_branch=""
 	local super_root
+	local raw_branch_name
 	local branch_name
 	local branch_doc_dir
 	local template_root
@@ -238,11 +251,12 @@ main() {
 	fi
 
 	if [[ -n "$input_branch" ]]; then
-		branch_name="$(normalize_branch_name "$input_branch")"
+		raw_branch_name="$(normalize_branch_name "$input_branch")"
 	else
-		branch_name="$(detect_branch_from_repo "$super_root")"
+		raw_branch_name="$(detect_branch_from_repo "$super_root")"
 	fi
 
+	branch_name="$(derive_documentation_branch_name "$raw_branch_name")"
 	branch_doc_dir="$(sanitize_branch_dir_name "$branch_name")"
 
 	if [[ "$print_branch_only" == "true" ]]; then

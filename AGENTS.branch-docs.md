@@ -9,9 +9,15 @@
 - Do not leave temporary files elsewhere unless explicitly requested.
 - Treat `./.codex/` as Codex settings/config only. Do not use it for high-churn work products such as branch docs, generated outputs, downloads, logs, or temporary artifacts.
 
+## Source Code Comment Policy
+- When editing source code, proactively add concise Korean explanation comments near meaningful changed logic, without waiting for a separate user reminder.
+- These comments should explain the changed behavior, reason, branch-specific constraint, workaround, or integration point that is not obvious from the code alone.
+- Do not add noisy comments that merely restate syntax or obvious assignments; focus on changes future maintainers would otherwise need branch context to understand.
+
 ## Branch Documentation Workflow
 - The canonical work identifier is the current branch name unless the user explicitly names another branch.
-- Use the full branch name as the documentation key. Do not try to derive a separate work identifier.
+- If the branch name ends with a local build-test suffix made of `-` plus one or more lowercase `b` characters, such as `-b`, `-bb`, or `-bbb`, strip that suffix before deriving branch docs. For example, `ovdr-11678-shader-bb` documents under `ovdr-11678-shader`, and `sandbox/qa-5001-collab-block-b` documents under `sandbox/qa-5001-collab-block`.
+- Use the resulting branch name as the documentation key. Do not try to derive any other separate work identifier.
 - Map the branch to `./docs/branches/<branch-doc-dir>/`.
 - When working inside a nested repo or submodule, resolve the super project root first and infer the branch from there.
 - When deriving `<branch-doc-dir>`, replace `/` with `~` so branch docs remain Windows-safe. For example, `sandbox/ovdr-4397` maps to `docs/branches/sandbox~ovdr-4397/`.

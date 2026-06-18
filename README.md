@@ -5,12 +5,13 @@ This package applies a branch-scoped documentation workflow to a repository.
 Core rules:
 
 - Canonical branch docs live under `docs/branches/<branch-doc-dir>/`
-- The current branch name is the documentation key; replace `/` with `~` for the folder name
+- The current branch name is the documentation key after stripping a trailing build-test suffix such as `-b`, `-bb`, or `-bbb`; replace `/` with `~` for the folder name
 - In target work repositories, branch-docs-starter-installed files are personal local setup and should stay ignored by Git
 - Generated artifacts, scratch files, downloads, logs, and temporary outputs live under `./.agent-work/`
 - `./.codex/` is reserved for project-scoped Codex configuration files
 - Agent replies and internal branch docs must be written in English
 - Share docs under `share/` must be written in Korean
+- Source-code edits should include concise Korean explanation comments near meaningful changed logic without requiring a separate reminder
 - Before code lookup, agents must read the branch README and `status/code-map.md` and use the code map as the first search index
 - Current architecture lives in `architecture/current-architecture.md`; agents update that file instead of creating additional architecture drafts by default
 - Teammate-facing or externally shareable documents live under `share/<doc-type>/`, such as `share/guides/` and `share/specs/`
@@ -69,7 +70,7 @@ The install script:
 
 ## Usage
 
-1. Create or check out a branch such as `sandbox/ovdr-4397`, `feature/new-login`, or `ovdr-4397-some-work`
+1. Create or check out a branch such as `sandbox/ovdr-4397`, `feature/new-login`, `ovdr-4397-some-work`, or a build-test branch such as `ovdr-11678-shader-bb`
 2. Run:
 
 ```bash
@@ -83,7 +84,8 @@ bash ./docs/init-branch-docs.sh --sync-missing
 ```
 
 4. Before source investigation or code edits, read the branch README and `status/code-map.md`. Use `Search First` entries before any broad content search.
-5. Before creating a new plan, read `plans/README.md` and update `plans/active.md` or an existing topic plan unless the work is a distinct new workstream.
+5. During source edits, add Korean explanation comments for meaningful changed logic whose reason or branch context is not obvious from the code alone.
+6. Before creating a new plan, read `plans/README.md` and update `plans/active.md` or an existing topic plan unless the work is a distinct new workstream.
 
 ## Branch Doc Structure
 
@@ -108,12 +110,12 @@ New branch roots use this shape:
 
 ## Notes
 
-- The package uses the full branch name as the documentation key; it does not try to derive a separate work identifier
+- The package uses the branch name as the documentation key after stripping only a trailing build-test suffix made of `-` plus lowercase `b` characters, such as `-b` or `-bb`; it does not try to derive any other separate work identifier
 - This package's own `AGENTS.md` is local-only and is not installed into target repositories
 - The generated target-repo `AGENTS.md`, `.codex/`, and `docs/` setup are intended to remain local-only and ignored by Git
 - Only `.agent-work` skeleton files are installed; local scratch subdirectories are not copied into target repositories
 - Target repositories with team-owned `docs/` content should adapt the ignore block before install; the default assumes `docs/` is reserved for personal branch-docs-starter files
-- Branch doc directories are Windows-safe. For example, `sandbox/ovdr-4397` becomes `docs/branches/sandbox~ovdr-4397/`
+- Branch doc directories are Windows-safe. For example, `sandbox/ovdr-4397` becomes `docs/branches/sandbox~ovdr-4397/`, and `sandbox/qa-5001-collab-block-b` becomes `docs/branches/sandbox~qa-5001-collab-block/`
 - `init-branch-docs.sh` can infer the branch from worktrees whose `.git` file points at a Windows-style gitdir such as `Q:/...`
 - The package does not overwrite existing branch docs
 - Execution bits are not guaranteed in this environment, so prefer `bash <script>`
