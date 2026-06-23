@@ -22,8 +22,7 @@
 - When working inside a nested repo or submodule, resolve the super project root first and infer the branch from there.
 - When deriving `<branch-doc-dir>`, replace `/` with `~` so branch docs remain Windows-safe. For example, `sandbox/ovdr-4397` maps to `docs/branches/sandbox~ovdr-4397/`.
 - If `./docs/branches/<branch-doc-dir>/README.md` exists, read it first and treat it as the canonical documentation entrypoint for the branch.
-- If the branch doc root does not exist, initialize it from `./docs/branches/_template/` or by running `bash ./docs/init-branch-docs.sh` in WSL/Linux or in native Windows only when `bash` is available.
-- In native Windows PowerShell where `bash` is unavailable, do not call plain `bash`; use `wsl.exe` only if available, or create the required branch doc files manually under `./docs/branches/<branch-doc-dir>/`.
+- If the branch doc root does not exist, initialize it from `./docs/branches/_template/` or by running `bash ./docs/init-branch-docs.sh`.
 - For code changes on a branch, update `status/implementation-status.md` and `status/code-map.md` in the same turn unless the user explicitly says not to.
 - For accepted decisions that affect future work, update `status/decisions.md` or the relevant canonical `spec/` section.
 - For current architecture documentation, update `architecture/current-architecture.md`; do not create additional `architecture/*.md` files unless the branch README explicitly declares them canonical.
