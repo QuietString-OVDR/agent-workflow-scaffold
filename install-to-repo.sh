@@ -10,6 +10,9 @@ Usage:
 Behavior:
   - Copy project-scoped Codex config if missing
   - Copy .agent-work skeleton files and local-only branch docs files under docs/
+  - Update managed branch-docs starter files without overwriting local work roots
+  - Update managed agent helper tools under tools/agent/
+  - Fail if the target repository already tracks files under docs/
   - Create AGENTS.md from AGENTS.branch-docs.md if missing
   - Append or replace the marked AGENTS.branch-docs.md block if AGENTS.md already exists
   - Append or replace .gitignore rules for local-only starter files and .agent-work/
@@ -109,6 +112,61 @@ copy_file_if_missing() {
 	cp "$source_file" "$target_file"
 }
 
+copy_file_overwrite() {
+	local source_file="$1"
+	local target_file="$2"
+
+	mkdir -p "$(dirname "$target_file")"
+	cp "$source_file" "$target_file"
+}
+
+copy_tree_overwrite() {
+	local source_dir="$1"
+	local target_dir="$2"
+	local source_file
+	local relative_path
+	local target_file
+
+	while IFS= read -r source_file; do
+		relative_path="${source_file#"$source_dir"/}"
+		target_file="$target_dir/$relative_path"
+		copy_file_overwrite "$source_file" "$target_file"
+	done < <(find "$source_dir" -type f -print | sort)
+}
+
+sync_managed_docs() {
+	local package_root="$1"
+	local target_repo="$2"
+
+	copy_file_overwrite "$package_root/docs/init-branch-docs.sh" "$target_repo/docs/init-branch-docs.sh"
+	copy_file_overwrite "$package_root/docs/init-branch-docs.ps1" "$target_repo/docs/init-branch-docs.ps1"
+	copy_file_overwrite "$package_root/docs/branches/README.md" "$target_repo/docs/branches/README.md"
+	copy_file_overwrite "$package_root/docs/index/README.md" "$target_repo/docs/index/README.md"
+	copy_file_if_missing "$package_root" "$target_repo" "$package_root/docs/index/branch-bindings.json"
+	copy_file_if_missing "$package_root" "$target_repo" "$package_root/docs/index/work-items.json"
+	copy_file_overwrite "$package_root/docs/work/README.md" "$target_repo/docs/work/README.md"
+	copy_tree_overwrite "$package_root/docs/branches/_template" "$target_repo/docs/branches/_template"
+}
+
+sync_managed_tools() {
+	local package_root="$1"
+	local target_repo="$2"
+
+	copy_file_overwrite "$package_root/tools/agent/audit-source-comment-policy.ps1" "$target_repo/tools/agent/audit-source-comment-policy.ps1"
+}
+
+fail_if_docs_tracked() {
+	local target_repo="$1"
+	local tracked_docs
+
+	tracked_docs="$(git -C "$target_repo" ls-files -- docs 2>/dev/null | head -n 1 || true)"
+	if [[ -n "$tracked_docs" ]]; then
+		printf 'Refusing to install branch-docs-starter because target repo tracks files under docs/: %s\n' "$tracked_docs" >&2
+		printf 'This starter is intended for internal project repos where docs/ is local-only agent workspace.\n' >&2
+		exit 1
+	fi
+}
+
 main() {
 	local package_root
 	local target_repo
@@ -138,6 +196,8 @@ main() {
 
 	target_repo="$(cd "$target_repo" && pwd)"
 
+	fail_if_docs_tracked "$target_repo"
+
 	mkdir -p \
 		"$target_repo/.codex" \
 		"$target_repo/.agent-work" \
@@ -146,6 +206,7 @@ main() {
 	copy_file_if_missing "$package_root/.agent-work/.gitignore" "$target_repo/.agent-work/.gitignore"
 	copy_file_if_missing "$package_root/.agent-work/README.md" "$target_repo/.agent-work/README.md"
 	copy_tree_if_missing "$package_root/docs" "$target_repo/docs"
+	sync_managed_docs "$package_root" "$target_repo"
 
 	if [[ -f "$target_repo/tools/agent/init-branch-docs.sh" ]]; then
 		rm -f "$target_repo/tools/agent/init-branch-docs.sh"
@@ -153,6 +214,7 @@ main() {
 		rmdir "$target_repo/tools/agent" 2>/dev/null || true
 		rmdir "$target_repo/tools" 2>/dev/null || true
 	fi
+	sync_managed_tools "$package_root" "$target_repo"
 
 	if [[ ! -f "$target_repo/.codex/config.toml" ]]; then
 		cp "$package_root/.codex/config.toml" "$target_repo/.codex/config.toml"

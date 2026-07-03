@@ -1,0 +1,9 @@
+{
+  "version": 1,
+  "project": {
+    "repo": "",
+    "projectKey": "",
+    "jiraBaseUrl": "https://overdare.atlassian.net"
+  },
+  "items": {}
+}

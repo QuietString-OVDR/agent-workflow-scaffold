@@ -1,4 +1,4 @@
-# __BRANCH_NAME__ Decisions
+# __WORK_KEY__ Decisions
 
 Use this file for accepted decisions that future agents should see quickly.
 

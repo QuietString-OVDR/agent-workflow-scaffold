@@ -1,7 +1,11 @@
-# __BRANCH_NAME__ Docs
+# __WORK_KEY__ Docs
 
-This directory is the canonical documentation root for branch `__BRANCH_NAME__`.
-The Windows-safe folder name for this branch is `__BRANCH_DOC_DIR_NAME__`.
+This directory is the canonical documentation root for work key `__WORK_KEY__`.
+
+- Branch: `__BRANCH_NAME__`
+- Branch docs compatibility path: `docs/branches/__BRANCH_DOC_DIR_NAME__`
+- Parent work key: `__PARENT_WORK_KEY__`
+- Jira URL: `__ISSUE_URL__`
 
 ## Reading Order For A New Agent
 
@@ -58,6 +62,7 @@ The Windows-safe folder name for this branch is `__BRANCH_DOC_DIR_NAME__`.
 - When a new rule becomes canonical, update `spec/` first.
 - When a decision affects future work, update `status/decisions.md`.
 - When code changes, update `status/implementation-status.md` and `status/code-map.md` together.
+- When this child task affects parent rollout, sibling tasks, or shared decisions, update the parent work root as well.
 - Put implementation plans in `plans/`, then reflect the results in `status/` once implemented.
 - Update `architecture/current-architecture.md` instead of creating new architecture drafts.
 - Put polished teammate-facing documents in `share/<doc-type>/`, not in `plans/` or `architecture/`.

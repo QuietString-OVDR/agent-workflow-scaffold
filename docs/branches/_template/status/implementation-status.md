@@ -1,7 +1,10 @@
-# __BRANCH_NAME__ Implementation Status
+# __WORK_KEY__ Implementation Status
 
 ## Scope
 
+- Work key: `__WORK_KEY__`
+- Parent work key: `__PARENT_WORK_KEY__`
+- Branch: `__BRANCH_NAME__`
 - Branch goal:
 - Out of scope:
 

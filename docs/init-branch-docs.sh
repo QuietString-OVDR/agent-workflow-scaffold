@@ -5,12 +5,14 @@ set -euo pipefail
 print_usage() {
 	cat <<'EOF'
 Usage:
+  powershell -ExecutionPolicy Bypass -File ./docs/init-branch-docs.ps1 [options]
   bash ./docs/init-branch-docs.sh [branch-name]
   bash ./docs/init-branch-docs.sh --print-branch [branch-name]
   bash ./docs/init-branch-docs.sh --print-doc-dir [branch-name]
   bash ./docs/init-branch-docs.sh --sync-missing [branch-name]
 
 Behavior:
+  - PowerShell is the primary supported initializer for Jira work-key docs.
   - If branch-name is omitted, infer it from the current repo or super project branch.
   - The documentation key is the branch name after removing a trailing build-test suffix
     such as `-b`, `-bb`, or `-bbb`.
@@ -187,15 +189,21 @@ render_template_file() {
 	local target_file="$2"
 	local branch_name="$3"
 	local branch_doc_dir="$4"
+	local work_key="${5:-$branch_name}"
 	local branch_name_escaped
 	local branch_doc_dir_escaped
+	local work_key_escaped
 
 	branch_name_escaped="$(escape_sed_replacement "$branch_name")"
 	branch_doc_dir_escaped="$(escape_sed_replacement "$branch_doc_dir")"
+	work_key_escaped="$(escape_sed_replacement "$work_key")"
 
 	sed \
 		-e "s|__BRANCH_NAME__|$branch_name_escaped|g" \
 		-e "s|__BRANCH_DOC_DIR_NAME__|$branch_doc_dir_escaped|g" \
+		-e "s|__WORK_KEY__|$work_key_escaped|g" \
+		-e "s|__PARENT_WORK_KEY__||g" \
+		-e "s|__ISSUE_URL__||g" \
 		"$source_file" > "$target_file"
 }
 

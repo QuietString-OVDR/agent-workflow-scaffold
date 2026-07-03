@@ -1,8 +1,10 @@
-# __BRANCH_NAME__ Active Plan
+# __WORK_KEY__ Active Plan
 
 Lifecycle: active
 Updated:
 Workstream: default
+Branch: __BRANCH_NAME__
+Parent work key: __PARENT_WORK_KEY__
 Superseded by:
 Canonical result:
 

@@ -1,6 +1,6 @@
-# __BRANCH_NAME__ Code Map
+# __WORK_KEY__ Code Map
 
-Use this file as the first source lookup index for this branch. Keep the top sections optimized for fast search, not only for change history.
+Use this file as the first source lookup index for work key `__WORK_KEY__` on branch `__BRANCH_NAME__`. Keep the top sections optimized for fast search, not only for change history.
 
 ## Search First
 
