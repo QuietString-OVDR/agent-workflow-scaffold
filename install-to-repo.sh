@@ -11,7 +11,6 @@ Behavior:
   - Copy project-scoped Codex config if missing
   - Copy .agent-work skeleton files and local-only branch docs files under docs/
   - Update managed branch-docs starter files without overwriting local work roots
-  - Update managed agent helper tools under tools/agent/
   - Fail if the target repository already tracks files under docs/
   - Create AGENTS.md from AGENTS.branch-docs.md if missing
   - Append or replace the marked AGENTS.branch-docs.md block if AGENTS.md already exists
@@ -148,13 +147,6 @@ sync_managed_docs() {
 	copy_tree_overwrite "$package_root/docs/branches/_template" "$target_repo/docs/branches/_template"
 }
 
-sync_managed_tools() {
-	local package_root="$1"
-	local target_repo="$2"
-
-	copy_file_overwrite "$package_root/tools/agent/audit-source-comment-policy.ps1" "$target_repo/tools/agent/audit-source-comment-policy.ps1"
-}
-
 fail_if_docs_tracked() {
 	local target_repo="$1"
 	local tracked_docs
@@ -214,8 +206,6 @@ main() {
 		rmdir "$target_repo/tools/agent" 2>/dev/null || true
 		rmdir "$target_repo/tools" 2>/dev/null || true
 	fi
-	sync_managed_tools "$package_root" "$target_repo"
-
 	if [[ ! -f "$target_repo/.codex/config.toml" ]]; then
 		cp "$package_root/.codex/config.toml" "$target_repo/.codex/config.toml"
 		printf 'Created .codex/config.toml in %s\n' "$target_repo"

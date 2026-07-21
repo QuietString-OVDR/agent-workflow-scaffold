@@ -44,9 +44,6 @@ if exist "%target_repo%\tools\agent\init-branch-docs.sh" (
 	2>nul rmdir "%target_repo%\tools\agent"
 	2>nul rmdir "%target_repo%\tools"
 )
-call :sync_managed_tools "%package_root%" "%target_repo%"
-if errorlevel 1 exit /b 1
-
 if not exist "%target_repo%\.codex\config.toml" (
 	copy /y "%package_root%\.codex\config.toml" "%target_repo%\.codex\config.toml" >nul
 	if errorlevel 1 exit /b 1
@@ -89,7 +86,6 @@ echo Behavior:
 echo   - Copy project-scoped Codex config if missing
 echo   - Copy .agent-work skeleton files and local-only branch docs files under docs\
 echo   - Update managed branch-docs starter files without overwriting local work roots
-echo   - Update managed agent helper tools under tools\agent\
 echo   - Fail if the target repository already tracks files under docs\
 echo   - Create AGENTS.md from AGENTS.branch-docs.md if missing
 echo   - Append or replace the marked AGENTS.branch-docs.md block if AGENTS.md already exists
@@ -171,16 +167,6 @@ if errorlevel 1 (endlocal & exit /b 1)
 call :copy_file_overwrite "%package_root%\docs\work\README.md" "%target_repo%\docs\work\README.md"
 if errorlevel 1 (endlocal & exit /b 1)
 call :copy_tree_overwrite "%package_root%\docs\branches\_template" "%target_repo%\docs\branches\_template"
-if errorlevel 1 (endlocal & exit /b 1)
-
-endlocal & exit /b 0
-
-:sync_managed_tools
-setlocal EnableExtensions DisableDelayedExpansion
-set "package_root=%~f1"
-set "target_repo=%~f2"
-
-call :copy_file_overwrite "%package_root%\tools\agent\audit-source-comment-policy.ps1" "%target_repo%\tools\agent\audit-source-comment-policy.ps1"
 if errorlevel 1 (endlocal & exit /b 1)
 
 endlocal & exit /b 0

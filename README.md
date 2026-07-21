@@ -15,8 +15,6 @@ Core rules:
 - `./.codex/` is reserved for project-scoped Codex configuration files
 - Agent replies and internal branch docs must be written in English
 - Share docs under `share/` must be written in Korean
-- Source-code edits should include concise Korean explanation comments near meaningful changed logic without requiring a separate reminder
-- Before final replies for source-editing work, agents should review the actual diff and report the Korean implementation-comment policy check
 - Before code lookup, agents must read the branch README and `status/code-map.md` and use the code map as the first search index
 - Jira parent/child context is cached under `docs/index/work-items.json`
 - Current architecture lives in `architecture/current-architecture.md`; agents update that file instead of creating additional architecture drafts by default
@@ -47,8 +45,6 @@ This layout reflects the OpenAI Codex guidance for `workspace-write` sandboxes, 
   - Local branch binding and Jira work item index templates
 - `docs/work/`
   - Canonical Jira work document roots
-- `tools/agent/audit-source-comment-policy.ps1`
-  - Warning-only diff audit for large source changes that add no implementation comment lines
 - `install-to-repo.sh`
   - Helper script that installs the starter into a target repository
 - `install-to-repo.bat`
@@ -69,23 +65,21 @@ The install script:
 1. Creates `.codex/config.toml` if it does not exist
 2. Copies `.agent-work` skeleton files and the local-only branch-docs setup under `docs/`
 3. Updates managed starter files such as initializers, README files, and templates without overwriting local work roots or local index JSON
-4. Updates managed agent helper tools under `tools/agent/`
-5. Fails before writing if the target repository already tracks files under `docs/`
-6. Creates `AGENTS.md` from `AGENTS.branch-docs.md` if it does not exist
-7. Appends or replaces the marked `AGENTS.branch-docs.md` block if `AGENTS.md` already exists
-8. Appends or replaces local-only starter and `.agent-work/` ignore rules in `.gitignore`
-9. Removes the old `tools/agent/init-branch-docs.sh` helper if present
+4. Fails before writing if the target repository already tracks files under `docs/`
+5. Creates `AGENTS.md` from `AGENTS.branch-docs.md` if it does not exist
+6. Appends or replaces the marked `AGENTS.branch-docs.md` block if `AGENTS.md` already exists
+7. Appends or replaces local-only starter and `.agent-work/` ignore rules in `.gitignore`
+8. Removes the old `tools/agent/init-branch-docs.sh` helper if present
 
 ## Manual Install
 
 1. Copy `.codex/config.toml` into the target repo's `.codex/`
 2. Confirm `git -C <target-repo> ls-files -- docs` returns no tracked files
 3. Copy `.agent-work/.gitignore`, `.agent-work/README.md`, and `docs/`
-4. Copy `tools/agent/audit-source-comment-policy.ps1`
-5. If the target repo has no `AGENTS.md`, create one with a `# Repository Guidelines` header and the contents of `AGENTS.branch-docs.md`
-6. If the target repo already has `AGENTS.md`, replace the existing marked `branch-docs-starter` block or append it if missing
-7. Replace the existing marked `branch-docs-starter` `.gitignore` block or append it if missing
-8. Remove `tools/agent/init-branch-docs.sh` from the target repo if it was installed by an older starter version
+4. If the target repo has no `AGENTS.md`, create one with a `# Repository Guidelines` header and the contents of `AGENTS.branch-docs.md`
+5. If the target repo already has `AGENTS.md`, replace the existing marked `branch-docs-starter` block or append it if missing
+6. Replace the existing marked `branch-docs-starter` `.gitignore` block or append it if missing
+7. Remove `tools/agent/init-branch-docs.sh` from the target repo if it was installed by an older starter version
 
 ## Usage
 
@@ -125,15 +119,7 @@ powershell -ExecutionPolicy Bypass -File ./docs/init-branch-docs.ps1 `
 The Bash fallback uses `--allow-non-work-ref`.
 
 8. When branch documentation is enabled, before source investigation or code edits, read the work README and `status/code-map.md`. Use `Search First` entries before any broad content search.
-9. During source edits, add Korean explanation comments for meaningful changed logic whose reason or branch context is not obvious from the code alone.
-10. Before the final response for source-editing work, run the warning-only comment policy audit when available:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File ./tools/agent/audit-source-comment-policy.ps1
-```
-
-11. Treat audit warnings as review prompts, then report where Korean comments were added or why no additional implementation comments were needed.
-12. Before creating a new plan, read `plans/README.md` and update `plans/active.md` or an existing topic plan unless the work is a distinct new workstream.
+9. Before creating a new plan, read `plans/README.md` and update `plans/active.md` or an existing topic plan unless the work is a distinct new workstream.
 
 ## Branch Doc Structure
 

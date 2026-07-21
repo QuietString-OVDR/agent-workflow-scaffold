@@ -9,14 +9,6 @@
 - Do not leave temporary files elsewhere unless explicitly requested.
 - Treat `./.codex/` as Codex settings/config only. Do not use it for high-churn work products such as branch docs, generated outputs, downloads, logs, or temporary artifacts.
 
-## Source Code Comment Policy
-- When editing source code, proactively add concise Korean explanation comments near meaningful changed logic, without waiting for a separate user reminder.
-- These comments should explain the changed behavior, reason, branch-specific constraint, workaround, or integration point that is not obvious from the code alone.
-- Do not add noisy comments that merely restate syntax or obvious assignments; focus on changes future maintainers would otherwise need branch context to understand.
-- Before the final response after source edits, review the actual diff for meaningful changed logic and either add the needed Korean explanation comments or explicitly report why no additional implementation comments are needed.
-- When `./tools/agent/audit-source-comment-policy.ps1` exists, run it or an equivalent diff audit before the final response for source-editing work. Treat warnings as review prompts, not automatic blockers.
-- In the final response for source-editing work, include a short comment-policy check summary, such as where Korean comments were added or why the changed logic is self-explanatory.
-
 ## Session-Start Documentation Gate
 - At the start of each agent session, resolve the top-level or super project Git state before applying the branch documentation workflow.
 - If the session starts with detached HEAD or on the exact `master` branch, use lightweight mode by default. In lightweight mode, do not create, initialize, sync, or update `docs/work/**`, `docs/branches/**`, or the branch/work indexes.
