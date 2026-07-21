@@ -51,7 +51,7 @@
 
 ## Branch Documentation Git Policy
 - Branch-docs-starter-installed files in target work repositories are personal local agent setup and must not be committed unless the user explicitly asks.
-- `AGENTS.md`, `.codex/`, and `docs/**` are intentionally local-only in target work repositories.
+- `AGENTS.md`, `CLAUDE.md`, `.codex/`, local `.claude/` settings, and `docs/**` are intentionally local-only in target work repositories.
 - `docs/branches/**` is local-only agent working context and is intentionally ignored by Git.
 - `docs/work/**` and `docs/index/**` are local-only agent working context and are intentionally ignored by Git.
 - Do not force-add branch-docs-starter files or branch docs unless the user explicitly asks.

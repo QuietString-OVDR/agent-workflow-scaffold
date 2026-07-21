@@ -12,7 +12,7 @@ for %%I in ("%package_root%") do set "package_root=%%~fI"
 
 set "target_repo=%~1"
 if not exist "%target_repo%\" (
-	>&2 echo Target repo not found: %target_repo%
+	>&2 echo Target repo not found: "%target_repo%"
 	exit /b 1
 )
 for %%I in ("%target_repo%") do set "target_repo=%%~fI"
@@ -40,42 +40,86 @@ if errorlevel 1 exit /b 1
 if exist "%target_repo%\tools\agent\init-branch-docs.sh" (
 	del /f /q "%target_repo%\tools\agent\init-branch-docs.sh" >nul
 	if errorlevel 1 exit /b 1
-	echo Removed old tools\agent\init-branch-docs.sh from %target_repo%
+	echo Removed old tools\agent\init-branch-docs.sh from "%target_repo%"
 	2>nul rmdir "%target_repo%\tools\agent"
 	2>nul rmdir "%target_repo%\tools"
 )
 if not exist "%target_repo%\.codex\config.toml" (
 	copy /y "%package_root%\.codex\config.toml" "%target_repo%\.codex\config.toml" >nul
 	if errorlevel 1 exit /b 1
-	echo Created .codex\config.toml in %target_repo%
+	echo Created .codex\config.toml in "%target_repo%"
 ) else (
-	echo Skipped existing %target_repo%\.codex\config.toml
+	echo Skipped existing "%target_repo%\.codex\config.toml"
 )
 
 if exist "%target_repo%\AGENTS.md" goto :merge_agents
-> "%target_repo%\AGENTS.md" echo(# Repository Guidelines|| exit /b 1
->> "%target_repo%\AGENTS.md" echo(|| exit /b 1
-type "%package_root%\AGENTS.branch-docs.md" >> "%target_repo%\AGENTS.md" || exit /b 1
-echo Created AGENTS.md in %target_repo%
+call :create_from_block "# Repository Guidelines" "%package_root%\AGENTS.branch-docs.md" "%target_repo%\AGENTS.md"
+if errorlevel 1 exit /b 1
+echo Created AGENTS.md in "%target_repo%"
 goto :after_agents
 
 :merge_agents
 call :upsert_marked_block "<!-- branch-docs-starter:begin -->" "<!-- branch-docs-starter:end -->" "%package_root%\AGENTS.branch-docs.md" "%target_repo%\AGENTS.md"
 set "agents_result=%errorlevel%"
-if %agents_result% GEQ 3 exit /b 1
-if %agents_result% EQU 0 echo Updated branch docs guidance in %target_repo%\AGENTS.md
-if %agents_result% EQU 1 echo Merged branch docs guidance into %target_repo%\AGENTS.md
+if "%agents_result%"=="0" goto :agents_updated
+if "%agents_result%"=="5" goto :agents_merged
+>&2 echo Unable to update branch docs guidance in "%target_repo%\AGENTS.md" ^(code %agents_result%^)
+exit /b 1
+
+:agents_updated
+echo Updated branch docs guidance in "%target_repo%\AGENTS.md"
+goto :after_agents
+
+:agents_merged
+echo Merged branch docs guidance into "%target_repo%\AGENTS.md"
 
 :after_agents
 
+if exist "%target_repo%\CLAUDE.md" goto :merge_claude
+call :create_from_block "# Claude Code Instructions" "%package_root%\CLAUDE.branch-docs.md" "%target_repo%\CLAUDE.md"
+if errorlevel 1 exit /b 1
+echo Created CLAUDE.md in "%target_repo%"
+goto :after_claude
+
+:merge_claude
+call :upsert_marked_block "<!-- branch-docs-starter:begin -->" "<!-- branch-docs-starter:end -->" "%package_root%\CLAUDE.branch-docs.md" "%target_repo%\CLAUDE.md"
+set "claude_result=%errorlevel%"
+if "%claude_result%"=="0" goto :claude_updated
+if "%claude_result%"=="5" goto :claude_merged
+>&2 echo Unable to update branch docs guidance in "%target_repo%\CLAUDE.md" ^(code %claude_result%^)
+exit /b 1
+
+:claude_updated
+echo Updated branch docs guidance in "%target_repo%\CLAUDE.md"
+goto :after_claude
+
+:claude_merged
+echo Merged branch docs guidance into "%target_repo%\CLAUDE.md"
+
+:after_claude
+
 call :upsert_marked_block "# branch-docs-starter:begin" "# branch-docs-starter:end" "%package_root%\.agent-work.gitignore.block" "%target_repo%\.gitignore"
 set "gitignore_result=%errorlevel%"
-if %gitignore_result% GEQ 3 exit /b 1
-if %gitignore_result% EQU 0 echo Updated branch-docs ignore block in %target_repo%\.gitignore
-if %gitignore_result% EQU 1 echo Appended branch-docs ignore block to %target_repo%\.gitignore
-if %gitignore_result% EQU 2 echo Created branch-docs ignore block in %target_repo%\.gitignore
+if "%gitignore_result%"=="0" goto :gitignore_updated
+if "%gitignore_result%"=="5" goto :gitignore_appended
+if "%gitignore_result%"=="2" goto :gitignore_created
+>&2 echo Unable to update branch-docs ignore block in "%target_repo%\.gitignore" ^(code %gitignore_result%^)
+exit /b 1
 
-echo Starter package installed into %target_repo%
+:gitignore_updated
+echo Updated branch-docs ignore block in "%target_repo%\.gitignore"
+goto :after_gitignore
+
+:gitignore_appended
+echo Appended branch-docs ignore block to "%target_repo%\.gitignore"
+goto :after_gitignore
+
+:gitignore_created
+echo Created branch-docs ignore block in "%target_repo%\.gitignore"
+
+:after_gitignore
+
+echo Starter package installed into "%target_repo%"
 exit /b 0
 
 :print_usage
@@ -89,8 +133,22 @@ echo   - Update managed branch-docs starter files without overwriting local work
 echo   - Fail if the target repository already tracks files under docs\
 echo   - Create AGENTS.md from AGENTS.branch-docs.md if missing
 echo   - Append or replace the marked AGENTS.branch-docs.md block if AGENTS.md already exists
+echo   - Create CLAUDE.md from CLAUDE.branch-docs.md if missing
+echo   - Append or replace the marked CLAUDE.branch-docs.md block if CLAUDE.md already exists
 echo   - Append or replace .gitignore rules for local-only starter files and .agent-work/
 echo   - Remove the old tools\agent\init-branch-docs.sh helper if present
+echo.
+echo Marker block contract:
+echo   - Markers are matched as whole lines, tolerating a trailing CR
+echo   - A marker followed by other text on the same line is not a boundary
+echo   - A target that contains more than one begin marker is rejected
+echo   - Only the marked block is rewritten; text outside the markers is left as-is
+echo   - If the target file already uses CRLF, the whole file is written as CRLF;
+echo     otherwise LF is used, and the managed block is converted to match
+echo   - Target files must be UTF-8 without a BOM; a BOM in the target aborts the install
+echo   - A managed target must be a regular file; a symlink or directory aborts the install
+echo   - Managed files are built in a temp file under the target repo's .agent-work\ and
+echo     renamed into place, so an interrupted run never leaves a partial managed file
 exit /b 0
 
 :print_usage_ok
@@ -105,18 +163,74 @@ exit /b 1
 setlocal EnableExtensions DisableDelayedExpansion
 set "target_repo=%~f1"
 set "tracked_docs="
+set "ls_output=%TEMP%\branch-docs-ls-files-%RANDOM%%RANDOM%.txt"
 
-for /f "delims=" %%F in ('git -C "%target_repo%" ls-files -- docs 2^>nul') do (
+set "rev_output=%TEMP%\branch-docs-rev-parse-%RANDOM%%RANDOM%.txt"
+set "rev_state="
+
+where git >nul 2>nul
+if errorlevel 1 goto :git_missing
+
+git -C "%target_repo%" rev-parse --is-inside-work-tree > "%rev_output%" 2>&1
+if errorlevel 1 goto :rev_parse_failed
+
+for /f "usebackq delims=" %%S in ("%rev_output%") do set "rev_state=%%S"
+del /f /q "%rev_output%" >nul 2>nul
+if not "%rev_state%"=="true" goto :not_a_work_tree
+
+git -C "%target_repo%" ls-files -- docs > "%ls_output%" 2>nul
+if errorlevel 1 goto :git_ls_failed
+
+for /f "usebackq delims=" %%F in ("%ls_output%") do (
 	set "tracked_docs=%%F"
 	goto :found_tracked_docs
 )
 
+del /f /q "%ls_output%" >nul 2>nul
 endlocal & exit /b 0
 
+:git_missing
+>&2 echo git was not found on PATH. It is required to verify that the target repository does not track docs/.
+endlocal & exit /b 1
+
+:rev_parse_failed
+findstr /i /c:"not a git repository" "%rev_output%" >nul 2>nul
+if errorlevel 1 goto :rev_parse_unknown
+del /f /q "%rev_output%" >nul 2>nul
+>&2 echo Warning: "%target_repo%" is not a Git repository; skipping the tracked docs/ check.
+endlocal & exit /b 0
+
+:rev_parse_unknown
+del /f /q "%rev_output%" >nul 2>nul
+>&2 echo Unable to determine the Git status of "%target_repo%"; refusing to install.
+endlocal & exit /b 1
+
+:not_a_work_tree
+>&2 echo Refusing to install into "%target_repo%": git rev-parse --is-inside-work-tree did not report a working tree.
+endlocal & exit /b 1
+
+:git_ls_failed
+del /f /q "%ls_output%" >nul 2>nul
+>&2 echo Unable to list tracked files under docs/ in "%target_repo%"; refusing to install.
+endlocal & exit /b 1
+
 :found_tracked_docs
->&2 echo Refusing to install branch-docs-starter because target repo tracks files under docs/: %tracked_docs%
+del /f /q "%ls_output%" >nul 2>nul
+>&2 echo Refusing to install branch-docs-starter because target repo tracks files under docs/: "%tracked_docs%"
 >&2 echo This starter is intended for internal project repos where docs/ is local-only agent workspace.
 endlocal & exit /b 1
+
+:create_from_block
+setlocal EnableExtensions DisableDelayedExpansion
+set "CREATE_TITLE=%~1"
+set "CREATE_SOURCE=%~2"
+set "CREATE_TARGET=%~3"
+set "CREATE_TEMP_DIR=%target_repo%\.agent-work"
+set "powershell_path=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+if not exist "%powershell_path%" set "powershell_path=powershell"
+set "CREATE_SCRIPT=$ErrorActionPreference='Stop'; $tmp=$null; $bak=$null; try { $enc=New-Object System.Text.UTF8Encoding $false; $lf=[string][char]10; $target=$env:CREATE_TARGET; if (Test-Path -LiteralPath $target) { $targetItem=Get-Item -LiteralPath $target -Force; if ((($targetItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) -or ($targetItem -is [IO.DirectoryInfo])) { exit 1 } }; $block=[IO.File]::ReadAllText($env:CREATE_SOURCE); if ($block.Length -eq 0) { exit 1 }; $block=[regex]::Replace($block,'\r?\n',$lf); $tmpDir=$env:CREATE_TEMP_DIR; if (-not $tmpDir -or -not (Test-Path -LiteralPath $tmpDir)) { $tmpDir=[IO.Path]::GetDirectoryName($target) }; $tmp=[IO.Path]::Combine($tmpDir,'branch-docs-create-'+[Guid]::NewGuid().ToString('N')+'.tmp'); [IO.File]::WriteAllText($tmp,$env:CREATE_TITLE+$lf+$lf+$block,$enc); if ([IO.File]::Exists($target)) { $bak=[IO.Path]::Combine($tmpDir,'branch-docs-backup-'+[Guid]::NewGuid().ToString('N')+'.tmp'); [IO.File]::Replace($tmp,$target,$bak); if (Test-Path -LiteralPath $bak) { Remove-Item -LiteralPath $bak -Force -ErrorAction SilentlyContinue } } else { [IO.File]::Move($tmp,$target) }; exit 0 } catch { if ($tmp -and (Test-Path -LiteralPath $tmp)) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }; if ($bak -and (Test-Path -LiteralPath $bak)) { Remove-Item -LiteralPath $bak -Force -ErrorAction SilentlyContinue }; exit 1 }"
+"%powershell_path%" -NoProfile -ExecutionPolicy Bypass -Command "%CREATE_SCRIPT%"
+endlocal & exit /b %errorlevel%
 
 :upsert_marked_block
 setlocal EnableExtensions DisableDelayedExpansion
@@ -124,13 +238,13 @@ set "UPSERT_BEGIN=%~1"
 set "UPSERT_END=%~2"
 set "UPSERT_SOURCE=%~3"
 set "UPSERT_TARGET=%~4"
+set "UPSERT_TEMP_DIR=%target_repo%\.agent-work"
 set "powershell_path=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 
-if exist "%powershell_path%" (
-	"%powershell_path%" -NoProfile -ExecutionPolicy Bypass -Command "$begin=$env:UPSERT_BEGIN; $end=$env:UPSERT_END; $source=$env:UPSERT_SOURCE; $target=$env:UPSERT_TARGET; $enc=New-Object System.Text.UTF8Encoding $false; $block=[IO.File]::ReadAllText($source); if ([IO.File]::Exists($target)) { $text=[IO.File]::ReadAllText($target); $start=$text.IndexOf($begin); if ($start -ge 0) { $finish=$text.IndexOf($end,$start); if ($finish -lt 0) { Write-Error 'End marker not found'; exit 3 }; $finish += $end.Length; $text=$text.Substring(0,$start)+$block+$text.Substring($finish); [IO.File]::WriteAllText($target,$text,$enc); exit 0 } else { if ($text.Length -gt 0 -and -not $text.EndsWith([string][char]10)) { $text += [Environment]::NewLine }; $text += [Environment]::NewLine + $block; [IO.File]::WriteAllText($target,$text,$enc); exit 1 } } else { [IO.File]::WriteAllText($target,$block,$enc); exit 2 }"
-) else (
-	powershell -NoProfile -ExecutionPolicy Bypass -Command "$begin=$env:UPSERT_BEGIN; $end=$env:UPSERT_END; $source=$env:UPSERT_SOURCE; $target=$env:UPSERT_TARGET; $enc=New-Object System.Text.UTF8Encoding $false; $block=[IO.File]::ReadAllText($source); if ([IO.File]::Exists($target)) { $text=[IO.File]::ReadAllText($target); $start=$text.IndexOf($begin); if ($start -ge 0) { $finish=$text.IndexOf($end,$start); if ($finish -lt 0) { Write-Error 'End marker not found'; exit 3 }; $finish += $end.Length; $text=$text.Substring(0,$start)+$block+$text.Substring($finish); [IO.File]::WriteAllText($target,$text,$enc); exit 0 } else { if ($text.Length -gt 0 -and -not $text.EndsWith([string][char]10)) { $text += [Environment]::NewLine }; $text += [Environment]::NewLine + $block; [IO.File]::WriteAllText($target,$text,$enc); exit 1 } } else { [IO.File]::WriteAllText($target,$block,$enc); exit 2 }"
-)
+set "UPSERT_SCRIPT=$ErrorActionPreference='Stop'; $tmp=$null; $bak=$null; try { $begin=$env:UPSERT_BEGIN; $end=$env:UPSERT_END; $source=$env:UPSERT_SOURCE; $target=$env:UPSERT_TARGET; $enc=New-Object System.Text.UTF8Encoding $false; $lf=[string][char]10; $crlf=[string][char]13+$lf; $block=[IO.File]::ReadAllText($source); if ($block.Length -eq 0) { exit 4 }; if (Test-Path -LiteralPath $target) { $targetItem=Get-Item -LiteralPath $target -Force; if (($targetItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { Write-Error 'Symlink and reparse-point targets are not supported'; exit 4 }; if ($targetItem -is [IO.DirectoryInfo]) { Write-Error 'Directory targets are not supported'; exit 4 } }; $tmpDir=$env:UPSERT_TEMP_DIR; if (-not $tmpDir -or -not (Test-Path -LiteralPath $tmpDir)) { $tmpDir=[IO.Path]::GetDirectoryName($target) }; $tmp=[IO.Path]::Combine($tmpDir,'branch-docs-upsert-'+[Guid]::NewGuid().ToString('N')+'.tmp'); if (-not [IO.File]::Exists($target)) { [IO.File]::WriteAllText($tmp,[regex]::Replace($block,'\r?\n',$lf),$enc); [IO.File]::Move($tmp,$target); exit 2 }; $bytes=[IO.File]::ReadAllBytes($target); if (($bytes.Length -ge 3 -and $bytes[0] -eq 239 -and $bytes[1] -eq 187 -and $bytes[2] -eq 191) -or ($bytes.Length -ge 2 -and (($bytes[0] -eq 255 -and $bytes[1] -eq 254) -or ($bytes[0] -eq 254 -and $bytes[1] -eq 255)))) { Write-Error 'BOM targets are not supported'; exit 4 }; $text=[IO.File]::ReadAllText($target); $eol=$lf; if ($text.Contains($crlf)) { $eol=$crlf }; $block=[regex]::Replace($block,'\r?\n',$eol); $text=[regex]::Replace($text,'\r?\n',$eol); $beginRe=[regex]('(?m)^'+[regex]::Escape($begin)+'(?=\r?$)'); $endRe=[regex]('(?m)^'+[regex]::Escape($end)+'(\r?\n|$)'); $beginMatches=$beginRe.Matches($text); if ($beginMatches.Count -gt 1) { Write-Error 'More than one begin marker'; exit 3 }; if ($beginMatches.Count -eq 1) { $beginMatch=$beginMatches[0]; $endMatch=$endRe.Match($text,$beginMatch.Index+$beginMatch.Length); if (-not $endMatch.Success) { Write-Error 'End marker not found'; exit 3 }; $text=$text.Substring(0,$beginMatch.Index)+$block+$text.Substring($endMatch.Index+$endMatch.Length); [IO.File]::WriteAllText($tmp,$text,$enc); $bak=[IO.Path]::Combine($tmpDir,'branch-docs-backup-'+[Guid]::NewGuid().ToString('N')+'.tmp'); [IO.File]::Replace($tmp,$target,$bak); if (Test-Path -LiteralPath $bak) { Remove-Item -LiteralPath $bak -Force -ErrorAction SilentlyContinue }; exit 0 }; if ($text.Length -gt 0 -and -not $text.EndsWith($lf)) { $text += $eol }; $text += $eol + $block; [IO.File]::WriteAllText($tmp,$text,$enc); $bak=[IO.Path]::Combine($tmpDir,'branch-docs-backup-'+[Guid]::NewGuid().ToString('N')+'.tmp'); [IO.File]::Replace($tmp,$target,$bak); if (Test-Path -LiteralPath $bak) { Remove-Item -LiteralPath $bak -Force -ErrorAction SilentlyContinue }; exit 5 } catch { if ($tmp -and (Test-Path -LiteralPath $tmp)) { Remove-Item -LiteralPath $tmp -Force -ErrorAction SilentlyContinue }; if ($bak -and (Test-Path -LiteralPath $bak)) { Remove-Item -LiteralPath $bak -Force -ErrorAction SilentlyContinue }; exit 4 }"
+
+if not exist "%powershell_path%" set "powershell_path=powershell"
+"%powershell_path%" -NoProfile -ExecutionPolicy Bypass -Command "%UPSERT_SCRIPT%"
 endlocal & exit /b %errorlevel%
 
 :copy_tree_if_missing

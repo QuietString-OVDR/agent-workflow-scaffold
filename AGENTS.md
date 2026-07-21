@@ -17,12 +17,16 @@
 ## Starter Package Files
 - `AGENTS.md` is local guidance for agents working in this starter package.
 - `AGENTS.branch-docs.md` is the branch-docs guidance block installed into target repositories.
-- `install-to-repo.bat` and `install-to-repo.sh` must stay behaviorally aligned.
+- `CLAUDE.branch-docs.md` is the Claude Code adapter block installed into target repositories. It imports `AGENTS.md` and must carry only Claude-specific differences; shared policy belongs in `AGENTS.branch-docs.md`.
+- `install-to-repo.bat` and `install-to-repo.sh` must stay behaviorally aligned. They currently produce byte-identical output for the create, upsert, and append paths, and the smoke tests assert that.
 - `docs/branches/_template/` is target-repo template material, not canonical documentation for this starter package.
-- `tools/agent/init-branch-docs.sh` is installed into target repositories and should remain portable across native Windows Git Bash, WSL, and Linux where practical.
+- `docs/init-branch-docs.sh` is installed into target repositories and should remain portable across native Windows Git Bash, WSL, and Linux where practical. The old `tools/agent/init-branch-docs.sh` location is removed by both installers.
 
 ## Change Discipline
 - When changing installer behavior, update both installer scripts and `README.md` in the same turn.
 - When changing target-repo branch-doc guidance, update `AGENTS.branch-docs.md` and any README/manual install instructions that describe it.
+- When shared guidance changes in a way that Claude Code sessions must also honor, check whether `CLAUDE.branch-docs.md` needs a matching change. Do not duplicate shared policy there; it is inherited through the `@AGENTS.md` import.
+- When changing marked-block handling, encoding, or line-ending behavior, update the marker block contract in `README.md` and both installers' help text in the same turn.
+- Verify installer changes with the smoke suite in `./.agent-work/orca-claude-support-plan-20260721/`. `smoke-cross.ps1` runs the batch suite, the shell suite, and the byte-identical cross-installer comparison. Do not claim the two installers agree without running it.
 - Keep generated helpers, logs, scratch outputs, and temporary artifacts under `./.agent-work/`.
 - Treat `backup/` as read-only reference material unless the user explicitly requests edits there.

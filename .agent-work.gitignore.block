@@ -1,6 +1,10 @@
 # branch-docs-starter:begin
 /AGENTS.md
+/CLAUDE.md
+/CLAUDE.local.md
 /.codex/
+/.claude/settings.local.json
+/.orca/
 /docs/
 !/.agent-work/
 .agent-work/*
