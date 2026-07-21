@@ -8,6 +8,7 @@ param(
 	[string]$Summary,
 	[string]$ParentSummary,
 	[switch]$SyncMissing,
+	[switch]$AllowNonWorkRef,
 	[switch]$PrintBranch,
 	[switch]$PrintDocDir,
 	[switch]$PrintWorkKey
@@ -15,11 +16,13 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-function Invoke-GitText {
-	param([string[]]$GitArgs, [switch]$AllowFailure)
+function Invoke-GitProbe {
+	param([string[]]$GitArgs)
 
+	$gitCommand = Get-Command git -CommandType Application -ErrorAction Stop
 	$oldErrorActionPreference = $ErrorActionPreference
 	$oldNativeErrorActionPreference = $null
+	$exitCode = $null
 	$hasNativePreference = Get-Variable -Name PSNativeCommandUseErrorActionPreference -Scope Global -ErrorAction SilentlyContinue
 	if ($hasNativePreference) {
 		$oldNativeErrorActionPreference = $Global:PSNativeCommandUseErrorActionPreference
@@ -27,7 +30,7 @@ function Invoke-GitText {
 	}
 	try {
 		$ErrorActionPreference = "Continue"
-		$output = & git @GitArgs 2>$null
+		$output = & $gitCommand.Source @GitArgs 2>$null
 		$exitCode = $LASTEXITCODE
 	} finally {
 		$ErrorActionPreference = $oldErrorActionPreference
@@ -36,15 +39,25 @@ function Invoke-GitText {
 		}
 	}
 
-	if ($exitCode -ne 0 -and -not $AllowFailure) {
+	return [pscustomobject]@{
+		Output = ($output | Select-Object -First 1)
+		ExitCode = $exitCode
+	}
+}
+
+function Invoke-GitText {
+	param([string[]]$GitArgs, [switch]$AllowFailure)
+
+	$result = Invoke-GitProbe -GitArgs $GitArgs
+	if ($result.ExitCode -ne 0 -and -not $AllowFailure) {
 		throw "git $($GitArgs -join ' ') failed."
 	}
 
-	if ($exitCode -ne 0) {
+	if ($result.ExitCode -ne 0) {
 		return $null
 	}
 
-	return ($output | Select-Object -First 1)
+	return $result.Output
 }
 
 function Resolve-RepoRoot {
@@ -91,17 +104,19 @@ function Normalize-BranchName {
 function Get-CurrentBranch {
 	param([string]$RepoRoot)
 
-	$branch = Invoke-GitText -GitArgs @("-C", $RepoRoot, "branch", "--show-current") -AllowFailure
-	if ($branch) {
-		return (Normalize-BranchName $branch)
+	$result = Invoke-GitProbe -GitArgs @("-C", $RepoRoot, "symbolic-ref", "--quiet", "--short", "HEAD")
+	if ($result.ExitCode -eq 0) {
+		if (-not $result.Output) {
+			throw "git symbolic-ref returned an empty branch name for $RepoRoot."
+		}
+		return (Normalize-BranchName $result.Output)
 	}
 
-	$head = Invoke-GitText -GitArgs @("-C", $RepoRoot, "symbolic-ref", "--short", "HEAD") -AllowFailure
-	if ($head) {
-		return (Normalize-BranchName $head)
+	if ($result.ExitCode -eq 1) {
+		return $null
 	}
 
-	throw "Unable to detect current branch from $RepoRoot."
+	throw "Unable to resolve current branch from $RepoRoot. git symbolic-ref failed with exit code $($result.ExitCode)."
 }
 
 function Get-DocumentationBranchName {
@@ -448,10 +463,22 @@ $templateRoot = Join-Path $branchesRoot "_template"
 $bindingsPath = Join-Path $indexRoot "branch-bindings.json"
 $workItemsPath = Join-Path $indexRoot "work-items.json"
 
+$currentBranch = Get-CurrentBranch $repoRoot
 if ($BranchName) {
 	$rawBranchName = Normalize-BranchName $BranchName
 } else {
-	$rawBranchName = Get-CurrentBranch $repoRoot
+	$rawBranchName = $currentBranch
+}
+
+if (-not $rawBranchName) {
+	if ($PrintBranch -or $PrintDocDir -or $PrintWorkKey) {
+		throw "Unable to detect current branch from $repoRoot because HEAD is detached."
+	}
+	if ($AllowNonWorkRef) {
+		throw "Detached HEAD requires -BranchName when -AllowNonWorkRef is used."
+	}
+	Write-Output "Branch docs skipped: HEAD is detached. Continue without branch documentation unless the user explicitly requests it."
+	exit 0
 }
 
 $documentationBranchName = Get-DocumentationBranchName $rawBranchName
@@ -494,6 +521,16 @@ if ($PrintWorkKey) {
 	if ($resolvedWorkKey) {
 		Write-Output $resolvedWorkKey
 	}
+	exit 0
+}
+
+if (-not $AllowNonWorkRef -and -not $currentBranch) {
+	Write-Output "Branch docs skipped: HEAD is detached. Continue without branch documentation unless the user explicitly requests it."
+	exit 0
+}
+
+if (-not $AllowNonWorkRef -and (($currentBranch -ceq "master") -or ($rawBranchName -ceq "master"))) {
+	Write-Output "Branch docs skipped: the current or requested branch is master. Continue without branch documentation unless the user explicitly requests it."
 	exit 0
 }
 

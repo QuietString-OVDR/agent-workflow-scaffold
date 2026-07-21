@@ -17,21 +17,23 @@ Structure:
 
 Workflow:
 
-1. Create or check out a branch such as `sandbox/ovdr-4397`, `feature/new-login`, `ovdr-4397-some-work`, or a build-test branch such as `ovdr-11678-shader-bb`
-2. In native Windows PowerShell, run `powershell -ExecutionPolicy Bypass -File ./docs/init-branch-docs.ps1`
-3. If the branch contains a single Jira key such as `sandbox/ovdr-12401`, the script creates `docs/work/OVDR-12401/` and a compatibility junction under `docs/branches/`
-4. If the user provides parent context, pass it explicitly, for example `-ParentWorkKey OVDR-12368 -IssueUrl https://overdare.atlassian.net/browse/OVDR-12401`
-5. The script strips a trailing build-test suffix such as `-b` or `-bb` for branch doc compatibility paths, then replaces `/` with `~` for a Windows-safe folder name
-6. Before code lookup, read the work README and `status/code-map.md`; use the code map as the first search index
-7. During source edits, add Korean explanation comments for meaningful changed logic whose reason or branch context is not obvious from the code alone
-8. When code changes on a branch, update `status/implementation-status.md` and `status/code-map.md` together
-9. When a decision affects future work, update `status/decisions.md`; if it affects sibling tasks or rollout, update the parent work root too
-10. Before creating a new plan, read `plans/README.md` and update `plans/active.md` or an existing topic plan unless the work is a distinct new workstream
-11. Move implemented, superseded, or parked plans under `archive/plans/` or summarize them there so stale plans do not stay equally visible
+1. At session start, check the top-level or super project Git state. If HEAD is detached or the exact branch is `master`, work in lightweight mode without creating or updating branch/work docs by default.
+2. For documented work, create or check out a branch such as `sandbox/ovdr-4397`, `feature/new-login`, `ovdr-4397-some-work`, or a build-test branch such as `ovdr-11678-shader-bb`.
+3. In native Windows PowerShell, run `powershell -ExecutionPolicy Bypass -File ./docs/init-branch-docs.ps1`.
+4. If the user explicitly requests docs on detached HEAD or `master`, pass `-AllowNonWorkRef`; detached HEAD also requires an explicit `-BranchName`. The Bash fallback uses `--allow-non-work-ref`.
+5. If the branch contains a single Jira key such as `sandbox/ovdr-12401`, the script creates `docs/work/OVDR-12401/` and a compatibility junction under `docs/branches/`.
+6. If the user provides parent context, pass it explicitly, for example `-ParentWorkKey OVDR-12368 -IssueUrl https://overdare.atlassian.net/browse/OVDR-12401`.
+7. The script strips a trailing build-test suffix such as `-b` or `-bb` for branch doc compatibility paths, then replaces `/` with `~` for a Windows-safe folder name.
+8. When branch documentation is enabled, before code lookup, read the work README and `status/code-map.md`; use the code map as the first search index.
+9. When code changes on a branch with branch documentation enabled, update `status/implementation-status.md` and `status/code-map.md` together.
+10. When a decision affects future work, update `status/decisions.md`; if it affects sibling tasks or rollout, update the parent work root too.
+11. Before creating a new plan, read `plans/README.md` and update `plans/active.md` or an existing topic plan unless the work is a distinct new workstream.
+12. Move implemented, superseded, or parked plans under `archive/plans/` or summarize them there so stale plans do not stay equally visible.
 
 Notes:
 
 - This `docs/` tree is personal local agent setup in target work repositories and is intentionally ignored by Git.
+- The lightweight-mode choice is based on the session-start ref and remains in effect until the user explicitly asks to use branch/work documentation.
 - Native Windows PowerShell is the primary supported environment for creating Jira work docs and branch compatibility junctions.
 - `_template/` is never a canonical document source
 - `archive/`, `research/`, and `backup/` are not the source of truth unless the branch README explicitly says otherwise

@@ -8,6 +8,7 @@ Core rules:
 - Branch compatibility paths live under `docs/branches/<branch-doc-dir>/`
 - Branch names may include prefixes such as `sandbox/` or `client/`; the initializer scans the full branch path for a Jira key
 - The branch compatibility folder name is the branch name after stripping a trailing build-test suffix such as `-b`, `-bb`, or `-bbb`; replace `/` with `~` for the folder name
+- Sessions that start with detached HEAD or on the exact `master` branch use lightweight mode by default and do not create or update branch/work docs unless the user explicitly requests documentation
 - In target work repositories, branch-docs-starter-installed files are personal local setup and should stay ignored by Git
 - Target repositories must not already track files under `docs/`; the installers fail when `git ls-files docs` returns tracked files
 - Generated artifacts, scratch files, downloads, logs, and temporary outputs live under `./.agent-work/`
@@ -37,9 +38,9 @@ This layout reflects the OpenAI Codex guidance for `workspace-write` sandboxes, 
 - `.agent-work.gitignore.block`
   - Ignore rules that keep target-repo starter files local-only while preserving `.agent-work/` skeleton behavior
 - `docs/init-branch-docs.sh`
-  - Legacy Bash initializer for branch-name-only docs
+  - Legacy Bash initializer for branch-name-only docs; skips detached HEAD and `master` by default
 - `docs/init-branch-docs.ps1`
-  - Primary Windows PowerShell initializer that detects Jira work keys, updates local indexes, and creates branch compatibility junctions
+  - Primary Windows PowerShell initializer that detects Jira work keys, updates local indexes, and creates branch compatibility junctions; skips detached HEAD and `master` by default
 - `docs/branches/_template/`
   - Starter template for new branch doc roots
 - `docs/index/`
@@ -88,14 +89,15 @@ The install script:
 
 ## Usage
 
-1. Create or check out a branch such as `sandbox/ovdr-4397`, `feature/new-login`, `ovdr-4397-some-work`, or a build-test branch such as `ovdr-11678-shader-bb`
-2. In native Windows PowerShell, run:
+1. At session start, check the top-level or super project Git state. If HEAD is detached or the exact branch is `master`, work without branch/work docs by default and use `./.agent-work/` for disposable notes or evidence.
+2. For documented work, create or check out a work branch such as `sandbox/ovdr-4397`, `feature/new-login`, `ovdr-4397-some-work`, or a build-test branch such as `ovdr-11678-shader-bb`.
+3. In native Windows PowerShell, run:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File ./docs/init-branch-docs.ps1
 ```
 
-3. When the user provides Jira context, pass it explicitly:
+4. When the user provides Jira context, pass it explicitly:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File ./docs/init-branch-docs.ps1 `
@@ -105,23 +107,33 @@ powershell -ExecutionPolicy Bypass -File ./docs/init-branch-docs.ps1 `
   -ParentIssueUrl https://overdare.atlassian.net/browse/OVDR-12368
 ```
 
-4. If the branch contains exactly one Jira key, such as `sandbox/ovdr-12401`, the initializer resolves `OVDR-12401` automatically.
-5. If the branch doc root already exists and you only want to add missing template files, run:
+5. If the branch contains exactly one Jira key, such as `sandbox/ovdr-12401`, the initializer resolves `OVDR-12401` automatically.
+6. If the branch doc root already exists and you only want to add missing template files, run:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File ./docs/init-branch-docs.ps1 -SyncMissing
 ```
 
-6. Before source investigation or code edits, read the work README and `status/code-map.md`. Use `Search First` entries before any broad content search.
-7. During source edits, add Korean explanation comments for meaningful changed logic whose reason or branch context is not obvious from the code alone.
-8. Before the final response for source-editing work, run the warning-only comment policy audit when available:
+7. If the user explicitly requests branch/work documentation while HEAD is detached or the current/requested branch is `master`, use `-AllowNonWorkRef`. Detached HEAD also requires an explicit `-BranchName`:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File ./docs/init-branch-docs.ps1 `
+  -AllowNonWorkRef `
+  -BranchName investigation/manual-docs
+```
+
+The Bash fallback uses `--allow-non-work-ref`.
+
+8. When branch documentation is enabled, before source investigation or code edits, read the work README and `status/code-map.md`. Use `Search First` entries before any broad content search.
+9. During source edits, add Korean explanation comments for meaningful changed logic whose reason or branch context is not obvious from the code alone.
+10. Before the final response for source-editing work, run the warning-only comment policy audit when available:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File ./tools/agent/audit-source-comment-policy.ps1
 ```
 
-9. Treat audit warnings as review prompts, then report where Korean comments were added or why no additional implementation comments were needed.
-10. Before creating a new plan, read `plans/README.md` and update `plans/active.md` or an existing topic plan unless the work is a distinct new workstream.
+11. Treat audit warnings as review prompts, then report where Korean comments were added or why no additional implementation comments were needed.
+12. Before creating a new plan, read `plans/README.md` and update `plans/active.md` or an existing topic plan unless the work is a distinct new workstream.
 
 ## Branch Doc Structure
 
@@ -154,6 +166,7 @@ The initializer also updates:
 ## Notes
 
 - The package uses Jira keys as canonical work identifiers when a key is provided or can be parsed from the branch name
+- Detached HEAD and exact `master` sessions are lightweight by default: agents do not initialize, sync, or update `docs/work/**`, `docs/branches/**`, or their indexes unless the user explicitly opts into documentation
 - Branch-name-only docs remain available as a legacy fallback when no Jira key is available
 - This package's own `AGENTS.md` is local-only and is not installed into target repositories
 - The generated target-repo `AGENTS.md`, `.codex/`, and `docs/` setup are intended to remain local-only and ignored by Git

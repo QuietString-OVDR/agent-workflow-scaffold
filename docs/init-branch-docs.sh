@@ -10,6 +10,7 @@ Usage:
   bash ./docs/init-branch-docs.sh --print-branch [branch-name]
   bash ./docs/init-branch-docs.sh --print-doc-dir [branch-name]
   bash ./docs/init-branch-docs.sh --sync-missing [branch-name]
+  bash ./docs/init-branch-docs.sh --allow-non-work-ref [branch-name]
 
 Behavior:
   - PowerShell is the primary supported initializer for Jira work-key docs.
@@ -17,6 +18,7 @@ Behavior:
   - The documentation key is the branch name after removing a trailing build-test suffix
     such as `-b`, `-bb`, or `-bbb`.
   - `./docs/branches/<branch-doc-dir>/` uses the documentation key with `/` replaced by `~`.
+  - Detached HEAD and `master` skip branch doc creation unless --allow-non-work-ref is passed.
   - Existing files are never overwritten.
 EOF
 }
@@ -154,30 +156,58 @@ sanitize_branch_dir_name() {
 detect_branch_from_repo() {
 	local super_root="$1"
 	local branch
+	local git_status
 	local git_dir
 	local head_file
 	local head
 
-	branch="$(git -C "$super_root" branch --show-current 2>/dev/null || true)"
-	if [[ -z "$branch" ]]; then
-		git_dir="$(resolve_git_dir_fallback "$super_root")"
-		head_file="$git_dir/HEAD"
-		if [[ -f "$head_file" ]]; then
-			head="$(sed -n '1p' "$head_file")"
-			case "$head" in
-				ref:\ refs/heads/*)
-					branch="${head#ref: refs/heads/}"
-					;;
-			esac
+	if branch="$(git -C "$super_root" symbolic-ref --quiet --short HEAD 2>/dev/null)"; then
+		if [[ -z "$branch" ]]; then
+			printf 'git symbolic-ref returned an empty branch name for %s.\n' "$super_root" >&2
+			return 2
 		fi
+		if branch="$(normalize_branch_name "$branch")"; then
+			printf '%s\n' "$branch"
+			return 0
+		fi
+		return 2
+	else
+		git_status=$?
 	fi
 
-	if [[ -z "$branch" ]]; then
-		printf 'Unable to detect current branch from %s\n' "$super_root" >&2
-		exit 1
+	if [[ "$git_status" -eq 1 ]]; then
+		return 1
 	fi
 
-	normalize_branch_name "$branch"
+	if ! git_dir="$(resolve_git_dir_fallback "$super_root")"; then
+		printf 'Unable to resolve current branch from %s: git symbolic-ref failed with exit code %s and the Git directory fallback failed.\n' "$super_root" "$git_status" >&2
+		return 2
+	fi
+
+	head_file="$git_dir/HEAD"
+	if [[ ! -r "$head_file" ]]; then
+		printf 'Unable to read HEAD after git symbolic-ref failed with exit code %s: %s\n' "$git_status" "$head_file" >&2
+		return 2
+	fi
+
+	head="$(sed -n '1p' "$head_file")"
+	case "$head" in
+		ref:\ refs/heads/*)
+			branch="${head#ref: refs/heads/}"
+			if branch="$(normalize_branch_name "$branch")"; then
+				printf '%s\n' "$branch"
+				return 0
+			fi
+			return 2
+			;;
+	esac
+
+	if [[ "$head" =~ ^[0-9a-fA-F]{40}([0-9a-fA-F]{24})?$ ]]; then
+		return 1
+	fi
+
+	printf 'Unable to interpret HEAD after git symbolic-ref failed with exit code %s: %s\n' "$git_status" "$head_file" >&2
+	return 2
 }
 
 escape_sed_replacement() {
@@ -209,10 +239,13 @@ render_template_file() {
 
 main() {
 	local sync_missing="false"
+	local allow_non_work_ref="false"
 	local print_branch_only="false"
 	local print_doc_dir_only="false"
 	local input_branch=""
 	local super_root
+	local branch_detection_status
+	local current_branch=""
 	local raw_branch_name
 	local branch_name
 	local branch_doc_dir
@@ -227,6 +260,9 @@ main() {
 		case "$1" in
 			--sync-missing)
 				sync_missing="true"
+				;;
+			--allow-non-work-ref)
+				allow_non_work_ref="true"
 				;;
 			--print-branch)
 				print_branch_only="true"
@@ -258,10 +294,33 @@ main() {
 		exit 1
 	fi
 
+	if current_branch="$(detect_branch_from_repo "$super_root")"; then
+		:
+	else
+		branch_detection_status=$?
+		if [[ "$branch_detection_status" -ne 1 ]]; then
+			exit "$branch_detection_status"
+		fi
+		current_branch=""
+	fi
+
 	if [[ -n "$input_branch" ]]; then
 		raw_branch_name="$(normalize_branch_name "$input_branch")"
 	else
-		raw_branch_name="$(detect_branch_from_repo "$super_root")"
+		raw_branch_name="$current_branch"
+	fi
+
+	if [[ -z "$raw_branch_name" ]]; then
+		if [[ "$print_branch_only" == "true" || "$print_doc_dir_only" == "true" ]]; then
+			printf 'Unable to detect current branch from %s because HEAD is detached.\n' "$super_root" >&2
+			exit 1
+		fi
+		if [[ "$allow_non_work_ref" == "true" ]]; then
+			printf 'Detached HEAD requires an explicit branch-name with --allow-non-work-ref.\n' >&2
+			exit 1
+		fi
+		printf 'Branch docs skipped: HEAD is detached. Continue without branch documentation unless the user explicitly requests it.\n'
+		exit 0
 	fi
 
 	branch_name="$(derive_documentation_branch_name "$raw_branch_name")"
@@ -274,6 +333,16 @@ main() {
 
 	if [[ "$print_doc_dir_only" == "true" ]]; then
 		printf '%s\n' "$branch_doc_dir"
+		exit 0
+	fi
+
+	if [[ "$allow_non_work_ref" == "false" && -z "$current_branch" ]]; then
+		printf 'Branch docs skipped: HEAD is detached. Continue without branch documentation unless the user explicitly requests it.\n'
+		exit 0
+	fi
+
+	if [[ "$allow_non_work_ref" == "false" && ( "$current_branch" == "master" || "$raw_branch_name" == "master" ) ]]; then
+		printf 'Branch docs skipped: the current or requested branch is master. Continue without branch documentation unless the user explicitly requests it.\n'
 		exit 0
 	fi
 
