@@ -51,7 +51,9 @@
 
 ## Branch Documentation Git Policy
 - Branch-docs-starter-installed files in target work repositories are personal local agent setup and must not be committed unless the user explicitly asks.
-- `AGENTS.md`, `CLAUDE.md`, `.codex/`, local `.claude/` settings, and `docs/**` are intentionally local-only in target work repositories.
+- Repository-owned tracked product documentation under `docs/**` remains tracked and branch-specific. Do not move, ignore, overwrite, or expose it through a whole-`docs` junction.
+- Local-only starter paths are limited to `docs/branches/**`, `docs/work/**`, `docs/index/**`, `docs/init-branch-docs.ps1`, and `docs/init-branch-docs.sh`.
+- `AGENTS.md`, `CLAUDE.md`, and `.codex/config.toml` are local-only only when the repository does not already track them. Existing tracked instruction/config files are repository-owned and must remain byte-preserved during worktree bootstrap.
 - `docs/branches/**` is local-only agent working context and is intentionally ignored by Git.
 - `docs/work/**` and `docs/index/**` are local-only agent working context and are intentionally ignored by Git.
 - Do not force-add branch-docs-starter files or branch docs unless the user explicitly asks.
@@ -59,6 +61,14 @@
 - When branch documentation is enabled, agents should still read and update `docs/branches/<branch-doc-dir>/` as local working memory.
 - For Jira-backed work, agents should update the canonical `docs/work/<WORK-KEY>/` root; `docs/branches/<branch-doc-dir>/` should be treated as a compatibility path.
 - Do not rely on `git status` to confirm branch-doc updates; verify with filesystem reads instead.
+
+## Orca Worktree Safety
+- In an Orca-managed clone, the primary checkout owns the physical `docs/branches/`, `docs/index/`, and `docs/work/` stores. A child worktree keeps a physical `docs/` directory and links only those three reserved subpaths to the primary checkout.
+- Never replace the whole `docs/` directory with a junction.
+- Do not run the full repository installer from a linked worktree. Use `bootstrap-worktree.ps1` with the explicit primary `-AnchorRepo`.
+- Before deleting a linked worktree, run `unbootstrap-worktree.ps1` through the Orca Archive Script so it verifies and removes only the three junction leaves. Never run direct `git worktree remove` while those junctions exist; on Windows it can traverse them and delete the canonical shared content. Orca CLI removal must use `--run-hooks`.
+- In an enrolled anchor or child checkout, do not run direct `git pull`, rebase, cherry-pick sequences, or unverified branch/tag/SHA checkouts. Fetch first, verify the candidate with the bootstrap script, and transition only to the verified full commit OID.
+- If bootstrap, candidate verification, or exact-target junction verification fails, do not delete or replace the reported path automatically.
 
 ## Code Lookup Bootstrap
 - When branch documentation is enabled, before locating code, opening guessed source paths, or running broad `rg`, resolve the current work doc root and read these files if present: `README.md`, `status/code-map.md`, and `status/implementation-status.md`.

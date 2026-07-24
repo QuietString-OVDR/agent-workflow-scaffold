@@ -2,12 +2,13 @@
 /AGENTS.md
 /CLAUDE.md
 /CLAUDE.local.md
-/.codex/
+/.codex/config.toml
 /.claude/settings.local.json
 /.orca/
-/docs/
-!/.agent-work/
-.agent-work/*
-!.agent-work/.gitignore
-!.agent-work/README.md
+/docs/branches/
+/docs/index/
+/docs/work/
+/docs/init-branch-docs.ps1
+/docs/init-branch-docs.sh
+/.agent-work/
 # branch-docs-starter:end

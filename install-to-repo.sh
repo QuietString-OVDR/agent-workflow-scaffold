@@ -11,7 +11,9 @@ Behavior:
   - Copy project-scoped Codex config if missing
   - Copy .agent-work skeleton files and local-only branch docs files under docs/
   - Update managed branch-docs starter files without overwriting local work roots
-  - Fail if the target repository already tracks files under docs/
+  - Allow tracked product docs outside the reserved branch-docs namespace
+  - Fail on tracked docs/branches, docs/index, docs/work, or initializer collisions
+  - Refuse full installation from a linked worktree; use bootstrap-worktree.ps1
   - Create AGENTS.md from AGENTS.branch-docs.md if missing
   - Append or replace the marked AGENTS.branch-docs.md block if AGENTS.md already exists
   - Create CLAUDE.md from CLAUDE.branch-docs.md if missing
@@ -345,20 +347,129 @@ sync_managed_docs() {
 
 require_git() {
 	if ! command -v git >/dev/null 2>&1; then
-		printf 'git was not found on PATH. It is required to verify that the target repository does not track docs/.\n' >&2
+		printf 'git was not found on PATH. It is required to verify the target repository layout.\n' >&2
 		exit 1
 	fi
 }
 
-fail_if_docs_tracked() {
+is_git_tracked() {
+	git -C "$1" ls-files --error-unmatch -- "$2" >/dev/null 2>&1
+}
+
+marked_block_matches() {
+	local begin_marker="$1"
+	local end_marker="$2"
+	local source_file="$3"
+	local target_file="$4"
+
+	[[ -f "$target_file" ]] || return 1
+	diff -q \
+		<(sed 's/\r$//' "$source_file") \
+		<(awk -v begin="$begin_marker" -v end="$end_marker" '
+			{
+				line = $0
+				sub(/\r$/, "", line)
+				if (line == begin) {
+					begin_count++
+					if (inside) bad = 1
+					inside = 1
+				}
+				if (inside) print line
+				if (line == end) {
+					end_count++
+					if (!inside) bad = 1
+					inside = 0
+				}
+			}
+			END {
+				if (bad || inside || begin_count != 1 || end_count != 1) exit 3
+			}
+		' "$target_file") >/dev/null 2>&1
+}
+
+claude_delegates_to_agents() {
+	awk '
+		{
+			line = $0
+			sub(/\r$/, "", line)
+			if (line == "@AGENTS.md") found = 1
+		}
+		END { exit(found ? 0 : 1) }
+	' "$1"
+}
+
+file_has_managed_marker() {
+	local begin_marker="$1"
+	local end_marker="$2"
+	local target_file="$3"
+	awk -v begin="$begin_marker" -v end="$end_marker" '
+		{
+			line = $0
+			sub(/\r$/, "", line)
+			if (line == begin || line == end) found = 1
+		}
+		END { exit(found ? 0 : 1) }
+	' "$target_file"
+}
+
+gitignore_has_blanket_rule() {
+	awk '
+		{
+			line = $0
+			sub(/\r$/, "", line)
+			gsub(/^[[:space:]]+|[[:space:]]+$/, "", line)
+			if (line == "/docs/" || line == "docs/" || line == "/.codex/" || line == ".codex/") found = 1
+		}
+		END { exit(found ? 0 : 1) }
+	' "$1"
+}
+
+validate_tracked_policies() {
+	local target_repo="$1"
+	local package_root="$2"
+	local begin_marker="<!-- branch-docs-starter:begin -->"
+	local end_marker="<!-- branch-docs-starter:end -->"
+	local ignore_begin="# branch-docs-starter:begin"
+	local ignore_end="# branch-docs-starter:end"
+
+	if is_git_tracked "$target_repo" "AGENTS.md" &&
+		! marked_block_matches "$begin_marker" "$end_marker" "$package_root/AGENTS.branch-docs.md" "$target_repo/AGENTS.md"; then
+		printf 'Tracked AGENTS.md is not exactly compatible; use migrate-orca-worktree-layout.ps1 with explicit authorization first.\n' >&2
+		return 1
+	fi
+	if is_git_tracked "$target_repo" "CLAUDE.md"; then
+		if file_has_managed_marker "$begin_marker" "$end_marker" "$target_repo/CLAUDE.md"; then
+			if ! marked_block_matches "$begin_marker" "$end_marker" "$package_root/CLAUDE.branch-docs.md" "$target_repo/CLAUDE.md"; then
+				printf 'Tracked CLAUDE.md contains stale or malformed starter markers; use migrate-orca-worktree-layout.ps1 with explicit authorization first.\n' >&2
+				return 1
+			fi
+		elif ! claude_delegates_to_agents "$target_repo/CLAUDE.md"; then
+			printf 'Tracked CLAUDE.md is not compatible; use migrate-orca-worktree-layout.ps1 with explicit authorization first.\n' >&2
+			return 1
+		fi
+	fi
+	if is_git_tracked "$target_repo" ".gitignore"; then
+		if ! marked_block_matches "$ignore_begin" "$ignore_end" "$package_root/.agent-work.gitignore.block" "$target_repo/.gitignore" ||
+			gitignore_has_blanket_rule "$target_repo/.gitignore"; then
+			printf 'Tracked .gitignore is not exactly compatible; use migrate-orca-worktree-layout.ps1 with explicit authorization first.\n' >&2
+			return 1
+		fi
+	fi
+}
+
+validate_git_layout() {
 	local target_repo="$1"
 	local tracked_docs
+	local git_dir
+	local common_dir
+	local tracked_path
+	local normalized_path
 
 	local rev_parse_output
 
 	if ! rev_parse_output="$(git -C "$target_repo" rev-parse --is-inside-work-tree 2>&1)"; then
 		if printf '%s' "$rev_parse_output" | grep -qi 'not a git repository'; then
-			printf 'Warning: %s is not a Git repository; skipping the tracked docs/ check.\n' "$target_repo" >&2
+			printf 'Warning: %s is not a Git repository; skipping the reserved-path check.\n' "$target_repo" >&2
 			return 0
 		fi
 		printf 'Unable to determine the Git status of %s; refusing to install: %s\n' "$target_repo" "$rev_parse_output" >&2
@@ -370,17 +481,36 @@ fail_if_docs_tracked() {
 		exit 1
 	fi
 
-	if ! tracked_docs="$(git -C "$target_repo" ls-files -- docs)"; then
+	if ! git_dir="$(git -C "$target_repo" rev-parse --path-format=absolute --git-dir)" ||
+		! common_dir="$(git -C "$target_repo" rev-parse --path-format=absolute --git-common-dir)"; then
+		printf 'Unable to inspect the Git directory layout in %s; refusing to install.\n' "$target_repo" >&2
+		exit 1
+	fi
+	if [[ "${git_dir,,}" != "${common_dir,,}" ]]; then
+		printf 'Refusing full branch-docs-starter installation from linked worktree %s.\n' "$target_repo" >&2
+		printf 'Use bootstrap-worktree.ps1 with an explicit primary -AnchorRepo.\n' >&2
+		exit 1
+	fi
+
+	if ! tracked_docs="$(
+		git -C "$target_repo" ls-files -- ':(icase)docs' &&
+		git -C "$target_repo" log --all --full-history --format= --name-only -- ':(icase)docs'
+	)"; then
 		printf 'Unable to list tracked files under docs/ in %s; refusing to install.\n' "$target_repo" >&2
 		exit 1
 	fi
 
-	tracked_docs="$(printf '%s' "$tracked_docs" | head -n 1)"
-	if [[ -n "$tracked_docs" ]]; then
-		printf 'Refusing to install branch-docs-starter because target repo tracks files under docs/: %s\n' "$tracked_docs" >&2
-		printf 'This starter is intended for internal project repos where docs/ is local-only agent workspace.\n' >&2
-		exit 1
-	fi
+	while IFS= read -r tracked_path; do
+		[[ -z "$tracked_path" ]] && continue
+		normalized_path="${tracked_path,,}"
+		case "$normalized_path" in
+			docs/branches|docs/branches/*|docs/index|docs/index/*|docs/work|docs/work/*|docs/init-branch-docs.ps1|docs/init-branch-docs.sh)
+				printf 'Refusing to install branch-docs-starter because the target tracks a reserved branch-docs path: %s\n' "$tracked_path" >&2
+				printf 'Product docs outside docs/branches, docs/index, docs/work, and the initializer paths are supported.\n' >&2
+				exit 1
+				;;
+		esac
+	done <<< "$tracked_docs"
 }
 
 main() {
@@ -413,7 +543,8 @@ main() {
 	target_repo="$(cd "$target_repo" && pwd)"
 
 	require_git
-	fail_if_docs_tracked "$target_repo"
+	validate_git_layout "$target_repo"
+	validate_tracked_policies "$target_repo" "$package_root"
 
 	mkdir -p \
 		"$target_repo/.codex" \
@@ -438,7 +569,9 @@ main() {
 		printf 'Skipped existing %s/.codex/config.toml\n' "$target_repo"
 	fi
 
-	if [[ ! -f "$target_repo/AGENTS.md" ]]; then
+	if is_git_tracked "$target_repo" "AGENTS.md"; then
+		printf 'Preserved compatible tracked %s/AGENTS.md\n' "$target_repo"
+	elif [[ ! -f "$target_repo/AGENTS.md" ]]; then
 		if ! create_from_block '# Repository Guidelines' "$package_root/AGENTS.branch-docs.md" "$target_repo/AGENTS.md" "$target_repo/.agent-work"; then
 			printf 'Unable to create %s/AGENTS.md\n' "$target_repo" >&2
 			exit 1
@@ -460,7 +593,9 @@ main() {
 		fi
 	fi
 
-	if [[ ! -f "$target_repo/CLAUDE.md" ]]; then
+	if is_git_tracked "$target_repo" "CLAUDE.md"; then
+		printf 'Preserved compatible tracked %s/CLAUDE.md\n' "$target_repo"
+	elif [[ ! -f "$target_repo/CLAUDE.md" ]]; then
 		if ! create_from_block '# Claude Code Instructions' "$package_root/CLAUDE.branch-docs.md" "$target_repo/CLAUDE.md" "$target_repo/.agent-work"; then
 			printf 'Unable to create %s/CLAUDE.md\n' "$target_repo" >&2
 			exit 1
@@ -482,20 +617,24 @@ main() {
 		fi
 	fi
 
-	upsert_temp_dir="$target_repo/.agent-work"
-	set +e
-	upsert_marked_block "$gitignore_marker" "$gitignore_end_marker" "$package_root/.agent-work.gitignore.block" "$target_repo/.gitignore"
-	upsert_result=$?
-	set -e
-	if [[ "$upsert_result" -eq 0 ]]; then
-		printf 'Updated branch-docs ignore block in %s/.gitignore\n' "$target_repo"
-	elif [[ "$upsert_result" -eq 5 ]]; then
-		printf 'Appended branch-docs ignore block to %s/.gitignore\n' "$target_repo"
-	elif [[ "$upsert_result" -eq 2 ]]; then
-		printf 'Created branch-docs ignore block in %s/.gitignore\n' "$target_repo"
+	if is_git_tracked "$target_repo" ".gitignore"; then
+		printf 'Preserved compatible tracked %s/.gitignore\n' "$target_repo"
 	else
-		printf 'Unable to update branch-docs ignore block in %s/.gitignore\n' "$target_repo" >&2
-		exit 1
+		upsert_temp_dir="$target_repo/.agent-work"
+		set +e
+		upsert_marked_block "$gitignore_marker" "$gitignore_end_marker" "$package_root/.agent-work.gitignore.block" "$target_repo/.gitignore"
+		upsert_result=$?
+		set -e
+		if [[ "$upsert_result" -eq 0 ]]; then
+			printf 'Updated branch-docs ignore block in %s/.gitignore\n' "$target_repo"
+		elif [[ "$upsert_result" -eq 5 ]]; then
+			printf 'Appended branch-docs ignore block to %s/.gitignore\n' "$target_repo"
+		elif [[ "$upsert_result" -eq 2 ]]; then
+			printf 'Created branch-docs ignore block in %s/.gitignore\n' "$target_repo"
+		else
+			printf 'Unable to update branch-docs ignore block in %s/.gitignore\n' "$target_repo" >&2
+			exit 1
+		fi
 	fi
 
 	printf 'Starter package installed into %s\n' "$target_repo"

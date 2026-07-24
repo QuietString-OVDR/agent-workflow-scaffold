@@ -17,7 +17,9 @@ if not exist "%target_repo%\" (
 )
 for %%I in ("%target_repo%") do set "target_repo=%%~fI"
 
-call :fail_if_docs_tracked "%target_repo%"
+call :validate_git_layout "%target_repo%"
+if errorlevel 1 exit /b 1
+call :validate_tracked_policies
 if errorlevel 1 exit /b 1
 
 if not exist "%target_repo%\.codex\" mkdir "%target_repo%\.codex"
@@ -52,6 +54,8 @@ if not exist "%target_repo%\.codex\config.toml" (
 	echo Skipped existing "%target_repo%\.codex\config.toml"
 )
 
+git -C "%target_repo%" ls-files --error-unmatch -- AGENTS.md >nul 2>nul
+if not errorlevel 1 goto :tracked_agents
 if exist "%target_repo%\AGENTS.md" goto :merge_agents
 call :create_from_block "# Repository Guidelines" "%package_root%\AGENTS.branch-docs.md" "%target_repo%\AGENTS.md"
 if errorlevel 1 exit /b 1
@@ -72,9 +76,15 @@ goto :after_agents
 
 :agents_merged
 echo Merged branch docs guidance into "%target_repo%\AGENTS.md"
+goto :after_agents
+
+:tracked_agents
+echo Preserved compatible tracked "%target_repo%\AGENTS.md"
 
 :after_agents
 
+git -C "%target_repo%" ls-files --error-unmatch -- CLAUDE.md >nul 2>nul
+if not errorlevel 1 goto :tracked_claude
 if exist "%target_repo%\CLAUDE.md" goto :merge_claude
 call :create_from_block "# Claude Code Instructions" "%package_root%\CLAUDE.branch-docs.md" "%target_repo%\CLAUDE.md"
 if errorlevel 1 exit /b 1
@@ -95,9 +105,15 @@ goto :after_claude
 
 :claude_merged
 echo Merged branch docs guidance into "%target_repo%\CLAUDE.md"
+goto :after_claude
+
+:tracked_claude
+echo Preserved compatible tracked "%target_repo%\CLAUDE.md"
 
 :after_claude
 
+git -C "%target_repo%" ls-files --error-unmatch -- .gitignore >nul 2>nul
+if not errorlevel 1 goto :tracked_gitignore
 call :upsert_marked_block "# branch-docs-starter:begin" "# branch-docs-starter:end" "%package_root%\.agent-work.gitignore.block" "%target_repo%\.gitignore"
 set "gitignore_result=%errorlevel%"
 if "%gitignore_result%"=="0" goto :gitignore_updated
@@ -116,6 +132,10 @@ goto :after_gitignore
 
 :gitignore_created
 echo Created branch-docs ignore block in "%target_repo%\.gitignore"
+goto :after_gitignore
+
+:tracked_gitignore
+echo Preserved compatible tracked "%target_repo%\.gitignore"
 
 :after_gitignore
 
@@ -130,7 +150,9 @@ echo Behavior:
 echo   - Copy project-scoped Codex config if missing
 echo   - Copy .agent-work skeleton files and local-only branch docs files under docs\
 echo   - Update managed branch-docs starter files without overwriting local work roots
-echo   - Fail if the target repository already tracks files under docs\
+echo   - Allow tracked product docs outside the reserved branch-docs namespace
+echo   - Fail on tracked docs\branches, docs\index, docs\work, or initializer collisions
+echo   - Refuse full installation from a linked worktree; use bootstrap-worktree.ps1
 echo   - Create AGENTS.md from AGENTS.branch-docs.md if missing
 echo   - Append or replace the marked AGENTS.branch-docs.md block if AGENTS.md already exists
 echo   - Create CLAUDE.md from CLAUDE.branch-docs.md if missing
@@ -159,7 +181,7 @@ exit /b 0
 call :print_usage
 exit /b 1
 
-:fail_if_docs_tracked
+:validate_git_layout
 setlocal EnableExtensions DisableDelayedExpansion
 set "target_repo=%~f1"
 set "tracked_docs="
@@ -178,26 +200,39 @@ for /f "usebackq delims=" %%S in ("%rev_output%") do set "rev_state=%%S"
 del /f /q "%rev_output%" >nul 2>nul
 if not "%rev_state%"=="true" goto :not_a_work_tree
 
-git -C "%target_repo%" ls-files -- docs > "%ls_output%" 2>nul
+set "git_dir="
+set "common_dir="
+for /f "usebackq delims=" %%G in (`git -C "%target_repo%" rev-parse --path-format^=absolute --git-dir 2^>nul`) do set "git_dir=%%G"
+if not defined git_dir goto :git_ls_failed
+for /f "usebackq delims=" %%G in (`git -C "%target_repo%" rev-parse --path-format^=absolute --git-common-dir 2^>nul`) do set "common_dir=%%G"
+if not defined common_dir goto :git_ls_failed
+if /i not "%git_dir%"=="%common_dir%" goto :linked_worktree
+
+git -C "%target_repo%" ls-files -- ":(icase)docs" > "%ls_output%" 2>nul
+if errorlevel 1 goto :git_ls_failed
+git -C "%target_repo%" log --all --full-history --format^= --name-only -- ":(icase)docs" >> "%ls_output%" 2>nul
 if errorlevel 1 goto :git_ls_failed
 
 for /f "usebackq delims=" %%F in ("%ls_output%") do (
-	set "tracked_docs=%%F"
-	goto :found_tracked_docs
+	call :is_reserved_docs_path "%%F"
+	if not errorlevel 1 (
+		set "tracked_docs=%%F"
+		goto :found_tracked_docs
+	)
 )
 
 del /f /q "%ls_output%" >nul 2>nul
 endlocal & exit /b 0
 
 :git_missing
->&2 echo git was not found on PATH. It is required to verify that the target repository does not track docs/.
+>&2 echo git was not found on PATH. It is required to verify the target repository layout.
 endlocal & exit /b 1
 
 :rev_parse_failed
 findstr /i /c:"not a git repository" "%rev_output%" >nul 2>nul
 if errorlevel 1 goto :rev_parse_unknown
 del /f /q "%rev_output%" >nul 2>nul
->&2 echo Warning: "%target_repo%" is not a Git repository; skipping the tracked docs/ check.
+>&2 echo Warning: "%target_repo%" is not a Git repository; skipping the reserved-path check.
 endlocal & exit /b 0
 
 :rev_parse_unknown
@@ -211,14 +246,40 @@ endlocal & exit /b 1
 
 :git_ls_failed
 del /f /q "%ls_output%" >nul 2>nul
->&2 echo Unable to list tracked files under docs/ in "%target_repo%"; refusing to install.
+>&2 echo Unable to inspect the Git layout or tracked docs paths in "%target_repo%"; refusing to install.
+endlocal & exit /b 1
+
+:linked_worktree
+del /f /q "%ls_output%" >nul 2>nul
+>&2 echo Refusing full branch-docs-starter installation from linked worktree "%target_repo%".
+>&2 echo Use bootstrap-worktree.ps1 with an explicit primary -AnchorRepo.
 endlocal & exit /b 1
 
 :found_tracked_docs
 del /f /q "%ls_output%" >nul 2>nul
->&2 echo Refusing to install branch-docs-starter because target repo tracks files under docs/: "%tracked_docs%"
->&2 echo This starter is intended for internal project repos where docs/ is local-only agent workspace.
+>&2 echo Refusing to install branch-docs-starter because the target tracks a reserved branch-docs path: "%tracked_docs%"
+>&2 echo Product docs outside docs/branches, docs/index, docs/work, and the initializer paths are supported.
 endlocal & exit /b 1
+
+:is_reserved_docs_path
+setlocal EnableExtensions DisableDelayedExpansion
+set "tracked_path=%~1"
+if /i "%tracked_path%"=="docs/branches" endlocal & exit /b 0
+if /i "%tracked_path:~0,14%"=="docs/branches/" endlocal & exit /b 0
+if /i "%tracked_path%"=="docs/index" endlocal & exit /b 0
+if /i "%tracked_path:~0,11%"=="docs/index/" endlocal & exit /b 0
+if /i "%tracked_path%"=="docs/work" endlocal & exit /b 0
+if /i "%tracked_path:~0,10%"=="docs/work/" endlocal & exit /b 0
+if /i "%tracked_path%"=="docs/init-branch-docs.ps1" endlocal & exit /b 0
+if /i "%tracked_path%"=="docs/init-branch-docs.sh" endlocal & exit /b 0
+endlocal & exit /b 1
+
+:validate_tracked_policies
+setlocal EnableExtensions DisableDelayedExpansion
+set "powershell_path=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
+if not exist "%powershell_path%" set "powershell_path=powershell"
+"%powershell_path%" -NoProfile -ExecutionPolicy Bypass -File "%package_root%\assert-install-policy.ps1" -TargetRepo "%target_repo%" -PackageRoot "%package_root%"
+endlocal & exit /b %errorlevel%
 
 :create_from_block
 setlocal EnableExtensions DisableDelayedExpansion

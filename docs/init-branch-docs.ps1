@@ -60,18 +60,146 @@ function Invoke-GitText {
 	return $result.Output
 }
 
+function Normalize-Path {
+	param([Parameter(Mandatory = $true)][string]$Path)
+
+	$fullPath = [IO.Path]::GetFullPath($Path)
+	$root = [IO.Path]::GetPathRoot($fullPath)
+	if ($fullPath.Length -gt $root.Length) {
+		$fullPath = $fullPath.TrimEnd('\', '/')
+	}
+	return $fullPath
+}
+
+function Test-PathEqual {
+	param(
+		[Parameter(Mandatory = $true)][string]$Left,
+		[Parameter(Mandatory = $true)][string]$Right
+	)
+
+	return [string]::Equals(
+		(Normalize-Path $Left),
+		(Normalize-Path $Right),
+		[StringComparison]::OrdinalIgnoreCase
+	)
+}
+
+function Assert-PhysicalDirectory {
+	param(
+		[Parameter(Mandatory = $true)][string]$Path,
+		[Parameter(Mandatory = $true)][string]$Description
+	)
+
+	$item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+	if (-not $item -or -not ($item -is [IO.DirectoryInfo])) {
+		throw "$Description must be a directory: $Path"
+	}
+	if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+		throw "$Description must be a physical non-reparse directory: $Path"
+	}
+}
+
+function Get-BranchDocsLayout {
+	param([Parameter(Mandatory = $true)][string]$WorktreeRoot)
+
+	$commonDir = Normalize-Path (Invoke-GitText -GitArgs @("-C", $WorktreeRoot, "rev-parse", "--path-format=absolute", "--git-common-dir"))
+	$manifestPath = Join-Path $commonDir "branch-docs-starter/manifest.json"
+	if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+		$docsRoot = Join-Path $WorktreeRoot "docs"
+		return [pscustomobject]@{
+			ManifestPath = $null
+			CommonDir = $commonDir
+			AnchorRepoRoot = $WorktreeRoot
+			DocsRoot = $docsRoot
+			BranchesRoot = (Join-Path $docsRoot "branches")
+			WorkRoot = (Join-Path $docsRoot "work")
+			IndexRoot = (Join-Path $docsRoot "index")
+			LockPath = (Join-Path $commonDir "branch-docs-starter/lifecycle.lock")
+		}
+	}
+
+	$manifest = [IO.File]::ReadAllText($manifestPath) | ConvertFrom-Json
+	if (-not $manifest.schemaVersion -or [int]$manifest.schemaVersion -ne 1) {
+		throw "Unsupported branch-docs manifest schema in $manifestPath"
+	}
+	foreach ($property in @("anchorRepoRoot", "commonDir", "branchesRoot", "workRoot", "indexRoot")) {
+		if (-not $manifest.PSObject.Properties[$property] -or -not $manifest.$property) {
+			throw "Manifest property '$property' is missing in $manifestPath"
+		}
+	}
+	if (-not (Test-PathEqual $manifest.commonDir $commonDir)) {
+		throw "Manifest common directory does not match the current worktree."
+	}
+
+	$anchorRoot = Normalize-Path $manifest.anchorRepoRoot
+	$anchorTopLevel = Normalize-Path (Invoke-GitText -GitArgs @("-C", $anchorRoot, "rev-parse", "--show-toplevel"))
+	$anchorGitDir = Normalize-Path (Invoke-GitText -GitArgs @("-C", $anchorRoot, "rev-parse", "--path-format=absolute", "--git-dir"))
+	$anchorCommonDir = Normalize-Path (Invoke-GitText -GitArgs @("-C", $anchorRoot, "rev-parse", "--path-format=absolute", "--git-common-dir"))
+	if (-not (Test-PathEqual $anchorTopLevel $anchorRoot) -or
+		-not (Test-PathEqual $anchorCommonDir $commonDir) -or
+		-not (Test-PathEqual $anchorGitDir $anchorCommonDir)) {
+		throw "Manifest anchor is not the main worktree for the current Git common directory."
+	}
+	$docsRoot = Join-Path $anchorRoot "docs"
+	$branchesRoot = Normalize-Path $manifest.branchesRoot
+	$workRoot = Normalize-Path $manifest.workRoot
+	$indexRoot = Normalize-Path $manifest.indexRoot
+	if (-not (Test-PathEqual $branchesRoot (Join-Path $docsRoot "branches")) -or
+		-not (Test-PathEqual $workRoot (Join-Path $docsRoot "work")) -or
+		-not (Test-PathEqual $indexRoot (Join-Path $docsRoot "index"))) {
+		throw "Manifest canonical roots do not match the anchor reserved namespace."
+	}
+	Assert-PhysicalDirectory $docsRoot "Anchor docs root"
+	Assert-PhysicalDirectory $branchesRoot "Canonical branches root"
+	Assert-PhysicalDirectory $workRoot "Canonical work root"
+	Assert-PhysicalDirectory $indexRoot "Canonical index root"
+
+	return [pscustomobject]@{
+		ManifestPath = $manifestPath
+		CommonDir = $commonDir
+		AnchorRepoRoot = $anchorRoot
+		DocsRoot = $docsRoot
+		BranchesRoot = $branchesRoot
+		WorkRoot = $workRoot
+		IndexRoot = $indexRoot
+		LockPath = (Join-Path $commonDir "branch-docs-starter/lifecycle.lock")
+	}
+}
+
+function Enter-LifecycleLock {
+	param(
+		[Parameter(Mandatory = $true)][string]$Path,
+		[int]$TimeoutSeconds = 30
+	)
+
+	$parent = Split-Path -Parent $Path
+	if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
+		New-Item -ItemType Directory -Path $parent -Force | Out-Null
+	}
+	$deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+	while ([DateTime]::UtcNow -lt $deadline) {
+		try {
+			return [IO.File]::Open($Path, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite, [IO.FileShare]::None)
+		} catch [IO.IOException] {
+			Start-Sleep -Milliseconds 200
+		}
+	}
+	throw "Timed out waiting for branch-docs lifecycle lock: $Path"
+}
+
 function Resolve-RepoRoot {
-	$superRoot = Invoke-GitText -GitArgs @("rev-parse", "--show-superproject-working-tree") -AllowFailure
+	$scriptRepo = Normalize-Path (Split-Path -Parent $PSScriptRoot)
+	$superRoot = Invoke-GitText -GitArgs @("-C", $scriptRepo, "rev-parse", "--show-superproject-working-tree") -AllowFailure
 	if ($superRoot) {
 		return (Resolve-Path -LiteralPath $superRoot).Path
 	}
 
-	$topLevel = Invoke-GitText -GitArgs @("rev-parse", "--show-toplevel") -AllowFailure
+	$topLevel = Invoke-GitText -GitArgs @("-C", $scriptRepo, "rev-parse", "--show-toplevel") -AllowFailure
 	if ($topLevel) {
 		return (Resolve-Path -LiteralPath $topLevel).Path
 	}
 
-	$current = (Get-Location).Path
+	$current = $scriptRepo
 	while ($current -and $current -ne [IO.Path]::GetPathRoot($current)) {
 		if (Test-Path -LiteralPath (Join-Path $current ".git")) {
 			return $current
@@ -79,7 +207,7 @@ function Resolve-RepoRoot {
 		$current = Split-Path -Parent $current
 	}
 
-	throw "Unable to resolve git work tree root from $(Get-Location)."
+	throw "Unable to resolve git work tree root from $scriptRepo."
 }
 
 function Normalize-BranchName {
@@ -153,6 +281,19 @@ function Get-JiraKeysFromBranch {
 	return $keys
 }
 
+function Normalize-WorkKey {
+	param(
+		[Parameter(Mandatory = $true)][string]$Value,
+		[Parameter(Mandatory = $true)][string]$ParameterName
+	)
+
+	$normalized = $Value.Trim().ToUpperInvariant()
+	if ($normalized -notmatch '^[A-Z][A-Z0-9_]*-[1-9][0-9]*$') {
+		throw "$ParameterName must be a Jira key such as OVDR-123: $Value"
+	}
+	return $normalized
+}
+
 function Get-OriginRepo {
 	param([string]$RepoRoot)
 
@@ -213,7 +354,50 @@ function Write-JsonFile {
 
 	$json = $Value | ConvertTo-Json -Depth 16
 	$encoding = New-Object System.Text.UTF8Encoding $false
-	[IO.File]::WriteAllText($Path, "$json`n", $encoding)
+	$tempPath = Join-Path $parent ("branch-docs-json-" + [Guid]::NewGuid().ToString("N") + ".tmp")
+	$backupPath = Join-Path $parent ("branch-docs-json-" + [Guid]::NewGuid().ToString("N") + ".bak")
+	try {
+		[IO.File]::WriteAllText($tempPath, "$json`n", $encoding)
+		if ([IO.File]::Exists($Path)) {
+			[IO.File]::Replace($tempPath, $Path, $backupPath)
+			if (Test-Path -LiteralPath $backupPath) {
+				Remove-Item -LiteralPath $backupPath -Force
+			}
+		} else {
+			[IO.File]::Move($tempPath, $Path)
+		}
+	} finally {
+		if (Test-Path -LiteralPath $tempPath) {
+			Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+		}
+		if (Test-Path -LiteralPath $backupPath) {
+			Remove-Item -LiteralPath $backupPath -Force -ErrorAction SilentlyContinue
+		}
+	}
+}
+
+function Write-Utf8NewAtomic {
+	param(
+		[Parameter(Mandatory = $true)][string]$Path,
+		[Parameter(Mandatory = $true)][string]$Text
+	)
+
+	$parent = Split-Path -Parent $Path
+	if (-not (Test-Path -LiteralPath $parent -PathType Container)) {
+		New-Item -ItemType Directory -Path $parent | Out-Null
+	}
+	$tempPath = Join-Path $parent ("branch-docs-template-" + [Guid]::NewGuid().ToString("N") + ".tmp")
+	try {
+		[IO.File]::WriteAllText($tempPath, $Text, (New-Object Text.UTF8Encoding $false))
+		if ([IO.File]::Exists($Path)) {
+			throw "Template target appeared during atomic creation: $Path"
+		}
+		[IO.File]::Move($tempPath, $Path)
+	} finally {
+		if (Test-Path -LiteralPath $tempPath) {
+			Remove-Item -LiteralPath $tempPath -Force -ErrorAction SilentlyContinue
+		}
+	}
 }
 
 function Ensure-ObjectProperty {
@@ -391,8 +575,24 @@ function Ensure-ParentWorkItem {
 function Sync-Template {
 	param([string]$TemplateRoot, [string]$TargetRoot, [hashtable]$Replacements)
 
-	if (-not (Test-Path -LiteralPath $TemplateRoot)) {
+	if (-not (Test-Path -LiteralPath $TemplateRoot -PathType Container)) {
 		throw "Template root not found: $TemplateRoot"
+	}
+	Assert-PhysicalDirectory $TemplateRoot "Branch-doc template root"
+	$templateReparse = @(Get-ChildItem -LiteralPath $TemplateRoot -Recurse -Force |
+		Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 })
+	if ($templateReparse.Count -gt 0) {
+		throw "Branch-doc template contains a reparse point: $($templateReparse[0].FullName)"
+	}
+
+	$targetItem = Get-Item -LiteralPath $TargetRoot -Force -ErrorAction SilentlyContinue
+	if ($targetItem) {
+		Assert-PhysicalDirectory $TargetRoot "Canonical work root"
+		$targetReparse = @(Get-ChildItem -LiteralPath $TargetRoot -Recurse -Force |
+			Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 })
+		if ($targetReparse.Count -gt 0) {
+			throw "Canonical work root contains a reparse point: $($targetReparse[0].FullName)"
+		}
 	}
 
 	foreach ($directory in Get-ChildItem -LiteralPath $TemplateRoot -Directory -Recurse) {
@@ -411,6 +611,14 @@ function Sync-Template {
 		$relative = $sourceFile.FullName.Substring($TemplateRoot.Length).TrimStart('\', '/')
 		$targetFile = Join-Path $TargetRoot $relative
 		if (Test-Path -LiteralPath $targetFile) {
+			$targetFileItem = Get-Item -LiteralPath $targetFile -Force
+			if ($targetFileItem -is [IO.DirectoryInfo] -or
+				($targetFileItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+				throw "Existing canonical template target must be a regular non-reparse file: $targetFile"
+			}
+			if ([string]::IsNullOrWhiteSpace([IO.File]::ReadAllText($targetFile))) {
+				throw "Existing canonical template target is empty or whitespace-only: $targetFile"
+			}
 			continue
 		}
 
@@ -423,22 +631,25 @@ function Sync-Template {
 		foreach ($key in $Replacements.Keys) {
 			$text = $text.Replace($key, [string]$Replacements[$key])
 		}
-		$encoding = New-Object System.Text.UTF8Encoding $false
-		[IO.File]::WriteAllText($targetFile, $text, $encoding)
+		Write-Utf8NewAtomic $targetFile $text
 	}
 }
 
 function Ensure-Junction {
 	param([string]$LinkPath, [string]$TargetPath)
 
-	if (Test-Path -LiteralPath $LinkPath) {
-		$item = Get-Item -LiteralPath $LinkPath -Force
-		if ($item.LinkType -eq "Junction" -or $item.LinkType -eq "SymbolicLink") {
-			return
+	$item = Get-Item -LiteralPath $LinkPath -Force -ErrorAction SilentlyContinue
+	if ($item) {
+		if ($item.LinkType -ne "Junction") {
+			throw "Compatibility path exists but is not a junction: $LinkPath"
 		}
-
-		Write-Warning "Compatibility path already exists as a physical directory: $LinkPath"
-		Write-Warning "Leaving it untouched. Canonical work docs are under $TargetPath."
+		$targets = @($item.Target)
+		if ($targets.Count -ne 1 -or -not $targets[0]) {
+			throw "Unable to resolve compatibility junction target: $LinkPath"
+		}
+		if (-not (Test-PathEqual $targets[0] $TargetPath)) {
+			throw "Compatibility junction points to the wrong target: $LinkPath -> $($targets[0]); expected $TargetPath"
+		}
 		return
 	}
 
@@ -455,10 +666,11 @@ function Ensure-Junction {
 }
 
 $repoRoot = Resolve-RepoRoot
-$docsRoot = Join-Path $repoRoot "docs"
-$branchesRoot = Join-Path $docsRoot "branches"
-$workRoot = Join-Path $docsRoot "work"
-$indexRoot = Join-Path $docsRoot "index"
+$layout = Get-BranchDocsLayout $repoRoot
+$docsRoot = $layout.DocsRoot
+$branchesRoot = $layout.BranchesRoot
+$workRoot = $layout.WorkRoot
+$indexRoot = $layout.IndexRoot
 $templateRoot = Join-Path $branchesRoot "_template"
 $bindingsPath = Join-Path $indexRoot "branch-bindings.json"
 $workItemsPath = Join-Path $indexRoot "work-items.json"
@@ -488,23 +700,45 @@ $repoName = $repoInfo.Repo
 $projectKey = $repoInfo.ProjectKey
 $jiraBaseUrl = "https://overdare.atlassian.net"
 
+$lifecycleLock = Enter-LifecycleLock $layout.LockPath
+try {
+$lockedLayout = Get-BranchDocsLayout $repoRoot
+foreach ($property in @("CommonDir", "AnchorRepoRoot", "DocsRoot", "BranchesRoot", "WorkRoot", "IndexRoot", "LockPath")) {
+	if (-not (Test-PathEqual $layout.$property $lockedLayout.$property)) {
+		throw "Branch-docs layout changed while waiting for the lifecycle lock: $property"
+	}
+}
+$layout = $lockedLayout
+$docsRoot = $layout.DocsRoot
+$branchesRoot = $layout.BranchesRoot
+$workRoot = $layout.WorkRoot
+$indexRoot = $layout.IndexRoot
+$templateRoot = Join-Path $branchesRoot "_template"
+$bindingsPath = Join-Path $indexRoot "branch-bindings.json"
+$workItemsPath = Join-Path $indexRoot "work-items.json"
+if (-not $BranchName) {
+	$lockedCurrentBranch = Get-CurrentBranch $repoRoot
+	if ($lockedCurrentBranch -cne $currentBranch) {
+		throw "Current branch changed while waiting for the lifecycle lock."
+	}
+}
 $bindingsIndex = Read-JsonFile $bindingsPath ([pscustomobject][ordered]@{ version = 1; bindings = @() })
 $binding = Get-BranchBinding $bindingsIndex $repoName $rawBranchName
 $jiraKeys = @(Get-JiraKeysFromBranch $rawBranchName)
 
 $resolvedWorkKey = $null
 if ($WorkKey) {
-	$resolvedWorkKey = $WorkKey.ToUpperInvariant()
+	$resolvedWorkKey = Normalize-WorkKey $WorkKey "-WorkKey"
 } elseif ($binding -and $binding.workKey) {
-	$resolvedWorkKey = ([string]$binding.workKey).ToUpperInvariant()
+	$resolvedWorkKey = Normalize-WorkKey ([string]$binding.workKey) "Bound work key"
 } elseif ($jiraKeys.Count -eq 1) {
-	$resolvedWorkKey = $jiraKeys[0]
+	$resolvedWorkKey = Normalize-WorkKey $jiraKeys[0] "Branch work key"
 } elseif ($jiraKeys.Count -gt 1) {
 	throw "Branch contains multiple Jira keys. Add an exact branch binding or pass -WorkKey. Branch: $rawBranchName"
 }
 
 if ($ParentWorkKey) {
-	$ParentWorkKey = $ParentWorkKey.ToUpperInvariant()
+	$ParentWorkKey = Normalize-WorkKey $ParentWorkKey "-ParentWorkKey"
 }
 
 if ($PrintBranch) {
@@ -545,7 +779,10 @@ $replacements = @{
 }
 
 if ($resolvedWorkKey) {
-	$canonicalRoot = Join-Path $workRoot $resolvedWorkKey
+	$canonicalRoot = Normalize-Path (Join-Path $workRoot $resolvedWorkKey)
+	if (-not (Test-PathEqual (Split-Path -Parent $canonicalRoot) $workRoot)) {
+		throw "Resolved work root escaped the canonical work directory: $canonicalRoot"
+	}
 	Sync-Template $templateRoot $canonicalRoot $replacements
 	Ensure-Junction (Join-Path $branchesRoot $branchDocDir) $canonicalRoot
 
@@ -607,3 +844,10 @@ if ($resolvedWorkKey) {
 	Sync-Template $templateRoot $legacyRoot $replacements
 	Write-Output "Branch docs ready: $legacyRoot"
 }
+} finally {
+	if ($lifecycleLock) {
+		$lifecycleLock.Dispose()
+	}
+}
+
+exit 0

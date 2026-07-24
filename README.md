@@ -9,8 +9,9 @@ Core rules:
 - Branch names may include prefixes such as `sandbox/` or `client/`; the initializer scans the full branch path for a Jira key
 - The branch compatibility folder name is the branch name after stripping a trailing build-test suffix such as `-b`, `-bb`, or `-bbb`; replace `/` with `~` for the folder name
 - Sessions that start with detached HEAD or on the exact `master` branch use lightweight mode by default and do not create or update branch/work docs unless the user explicitly requests documentation
-- In target work repositories, branch-docs-starter-installed files are personal local setup and should stay ignored by Git
-- Target repositories must not already track files under `docs/`; the installers fail when `git ls-files docs` returns tracked files
+- Repository-owned tracked product documentation under `docs/**` remains branch-specific
+- Local-only starter paths are limited to `docs/branches/**`, `docs/index/**`, `docs/work/**`, and the two initializer files
+- The installers fail only when a repository tracks one of those reserved paths; tracked product docs elsewhere are supported
 - Generated artifacts, scratch files, downloads, logs, and temporary outputs live under `./.agent-work/`
 - `./.codex/` is reserved for project-scoped Codex configuration files
 - Agent replies and internal branch docs must be written in English
@@ -51,6 +52,14 @@ This layout reflects the OpenAI Codex guidance for `workspace-write` sandboxes, 
   - Helper script that installs the starter into a target repository
 - `install-to-repo.bat`
   - Windows batch helper that installs the starter into a target repository
+- `assert-install-policy.ps1`
+  - Read-only Windows preflight used by the batch installer to protect compatible tracked policy files
+- `bootstrap-worktree.ps1`
+  - Native Windows entrypoint for initializing a primary anchor and projecting the reserved branch-doc paths into same-clone linked worktrees
+- `unbootstrap-worktree.ps1`
+  - Native Windows archive entrypoint that removes only verified child-worktree junction leaves before Orca or Git deletes the worktree
+- `migrate-orca-worktree-layout.ps1`
+  - Dry-run-by-default helper for explicitly approved tracked instruction or ignore-policy migrations
 
 ## Recommended Install
 
@@ -67,17 +76,19 @@ The install script:
 1. Creates `.codex/config.toml` if it does not exist
 2. Copies `.agent-work` skeleton files and the local-only branch-docs setup under `docs/`
 3. Updates managed starter files such as initializers, README files, and templates without overwriting local work roots or local index JSON
-4. Fails before writing if the target repository already tracks files under `docs/`
-5. Creates `AGENTS.md` from `AGENTS.branch-docs.md` if it does not exist
-6. Appends or replaces the marked `AGENTS.branch-docs.md` block if `AGENTS.md` already exists
-7. Creates `CLAUDE.md` from `CLAUDE.branch-docs.md` if it does not exist
-8. Appends or replaces the marked `CLAUDE.branch-docs.md` block if `CLAUDE.md` already exists
-9. Appends or replaces local-only starter and `.agent-work/` ignore rules in `.gitignore`
-10. Removes the old `tools/agent/init-branch-docs.sh` helper if present
+4. Fails before writing if the target tracks a reserved branch-doc path
+5. Preserves tracked `AGENTS.md`, `CLAUDE.md`, and `.gitignore` byte-for-byte after verifying exact compatibility; incompatible tracked policy files fail before any write and must use the explicit migration script
+6. Creates `AGENTS.md` from `AGENTS.branch-docs.md` if it does not exist
+7. Appends or replaces the marked `AGENTS.branch-docs.md` block only when `AGENTS.md` is untracked
+8. Creates `CLAUDE.md` from `CLAUDE.branch-docs.md` if it does not exist
+9. Appends or replaces the marked `CLAUDE.branch-docs.md` block only when `CLAUDE.md` is untracked
+10. Appends or replaces local-only starter and `.agent-work/` ignore rules only when `.gitignore` is untracked
+11. Removes the old `tools/agent/init-branch-docs.sh` helper if present
 
 Both installers require `git` on `PATH`. The install aborts when `git` is missing, when the
-tracked-`docs/` query fails, when `git rev-parse` fails for any reason other than "not a git
-repository", or when the target resolves to something that is not a working tree. Only a
+tracked-path query fails, when `git rev-parse` fails for any reason other than "not a git
+repository", when the target resolves to something that is not a working tree, or when the
+target is a linked worktree. Run full installation only from the main worktree. Only a
 positively identified non-repository is skipped with a warning so the install can continue.
 
 ### Marker block contract
@@ -112,17 +123,143 @@ Marked-block helper exit codes, shared by both installers: `0` replaced in place
 created from the block, `3` malformed markers, `4` I/O failure or unsupported target, `5`
 appended to an existing file. Any other code is treated as a failure.
 
+## Orca Linked Worktrees
+
+The native Windows worktree layout keeps each checkout's `docs/` directory physical. Only
+these reserved subpaths are shared:
+
+- `docs/branches/`
+- `docs/index/`
+- `docs/work/`
+
+The primary checkout stores those directories physically. A same-clone linked worktree has
+exact-target NTFS junctions at those three paths. Product docs outside the reserved paths,
+the initializer scripts, `.agent-work/`, and local agent configuration remain per-worktree.
+
+Initialize the primary checkout first. Quote both paths when they contain spaces:
+
+```powershell
+& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+  -File "T:\OneDrive - KRAFTON\Work\agent-setup\branch-docs-starter\bootstrap-worktree.ps1" `
+  -TargetRepo "Q:\path\to\primary" `
+  -AnchorRepo "Q:\path\to\primary"
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+```
+
+Use the same command as the first command in the Orca project's local-only Setup Script,
+with `-TargetRepo "%ORCA_WORKTREE_PATH%"` and the explicit primary checkout as
+`-AnchorRepo`. Keep `Run by default` enabled and wait for setup to finish before starting an
+agent.
+
+For `client-app`, compose the existing dependency setup exactly once and only after a
+successful bootstrap:
+
+```powershell
+& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+  -File "T:\OneDrive - KRAFTON\Work\agent-setup\branch-docs-starter\bootstrap-worktree.ps1" `
+  -TargetRepo "%ORCA_WORKTREE_PATH%" `
+  -AnchorRepo "Q:\workspace\client-app"
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+npm install
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+```
+
+Do not keep a second standalone `npm install` action after adding this combined Setup
+Script. For other repositories, preserve each existing setup command once, in its original
+order, after the bootstrap gate.
+
+Configure the Orca project's local-only Archive Script as well:
+
+```powershell
+& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+  -File "T:\OneDrive - KRAFTON\Work\agent-setup\branch-docs-starter\unbootstrap-worktree.ps1" `
+  -TargetRepo "%ORCA_WORKTREE_PATH%" `
+  -AnchorRepo "Q:\path\to\primary"
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+# Keep each pre-existing archive command exactly once below this line.
+```
+
+The archive command verifies the manifest, common Git directory, physical `docs/` root, and
+all three exact junction targets before removing the junction leaves. It never removes the
+canonical target directories. If a previous archive attempt stopped after removing only
+one or two junctions, running the same Archive Script again safely removes the verified
+remainder. On Windows, do not run `git worktree remove` while these
+junctions are present: Git can traverse the junctions and remove canonical shared content.
+Use Orca's archive-enabled removal path; when using the CLI, pass `orca worktree rm
+--run-hooks ...`. If the archive hook did not complete successfully, stop and inspect the
+worktree instead of forcing removal.
+
+The bootstrap fails closed when:
+
+- target and anchor do not share the same Git common directory
+- the anchor is itself a linked worktree
+- any current or known ref tracks a reserved path, including a Windows case-fold collision
+- tracked `AGENTS.md` lacks the compatibility block
+- tracked instruction/config files differ from the index
+- `.gitignore` contains duplicate starter markers or blanket `/docs/` or `/.codex/`
+- `docs/` is a reparse point, a reserved child path is physical, or a junction has the wrong target
+
+Use `migrate-orca-worktree-layout.ps1` for explicit tracked-policy preparation. It is a
+zero-write dry run unless `-Apply` is present, backs up every changed policy file, and
+requires `-AllowTrackedPolicyChanges` before changing a tracked file. Its ignore
+normalization collapses duplicate valid starter blocks and removes exact legacy `/docs/`,
+`docs/`, `/.codex/`, and `.codex/` blanket lines, then verifies the result before success.
+
+After a reviewed `.gitignore` migration is committed in an already enrolled anchor, approve
+the new tracked ignore fingerprint with the exact reviewed HEAD and a new backup directory:
+
+```powershell
+$reviewedHead = git -C "Q:\path\to\primary" rev-parse HEAD
+& "T:\OneDrive - KRAFTON\Work\agent-setup\branch-docs-starter\bootstrap-worktree.ps1" `
+  -TargetRepo "Q:\path\to\primary" `
+  -AnchorRepo "Q:\path\to\primary" `
+  -ApproveCurrentIgnorePolicy `
+  -ExpectedHeadOid $reviewedHead `
+  -ApprovalBackupRoot "Q:\safe-backups\branch-docs-ignore-approval-20260724"
+```
+
+This is the only normal path that adds a new fingerprint to the manifest. It revalidates
+the anchor under the lifecycle lock and backs up the prior manifest before changing it.
+
+Once a checkout is enrolled, do not use direct `git pull`, rebase, cherry-pick sequences, or
+unverified branch/tag/SHA transitions. Fetch first, verify the candidate, and transition to
+the returned full commit OID:
+
+```powershell
+.\bootstrap-worktree.ps1 -TargetRepo Q:\path\to\worktree `
+  -AnchorRepo Q:\path\to\primary -VerifyOnly -CandidateRef origin/feature
+
+git -C Q:\path\to\worktree merge --ff-only <verified-full-oid>
+
+.\bootstrap-worktree.ps1 -TargetRepo Q:\path\to\worktree `
+  -AnchorRepo Q:\path\to\primary -VerifyOnly -ExpectedHeadOid <verified-full-oid>
+```
+
+Run the native-Windows regression suites with disposable fixture roots under `.agent-work`:
+
+```powershell
+.\tests\orca-worktree-bootstrap.Tests.ps1 `
+  -FixtureRoot Q:\scratch\.agent-work\branch-docs-starter-tests\orca-worktree-bootstrap
+
+.\tests\installer-layout.Tests.ps1 `
+  -FixtureRoot Q:\scratch\.agent-work\branch-docs-starter-tests\installer-layout
+```
+
 ## Manual Install
 
 1. Copy `.codex/config.toml` into the target repo's `.codex/`
-2. Confirm `git -C <target-repo> ls-files -- docs` returns no tracked files
+2. Confirm no tracked path collides with `docs/branches`, `docs/index`, `docs/work`, or the two initializer paths
 3. Copy `.agent-work/.gitignore`, `.agent-work/README.md`, and `docs/`
-4. If the target repo has no `AGENTS.md`, create one with a `# Repository Guidelines` header and the contents of `AGENTS.branch-docs.md`
-5. If the target repo already has `AGENTS.md`, replace the existing marked `branch-docs-starter` block or append it if missing
-6. If the target repo has no `CLAUDE.md`, create one with a `# Claude Code Instructions` header and the contents of `CLAUDE.branch-docs.md`
-7. If the target repo already has `CLAUDE.md`, replace the existing marked `branch-docs-starter` block or append it if missing
-8. Replace the existing marked `branch-docs-starter` `.gitignore` block or append it if missing
-9. Remove `tools/agent/init-branch-docs.sh` from the target repo if it was installed by an older starter version
+4. Before touching `AGENTS.md`, `CLAUDE.md`, or `.gitignore`, check whether Git tracks it
+5. Preserve a compatible tracked policy file byte-for-byte; for an incompatible tracked file, stop and use `migrate-orca-worktree-layout.ps1` with dry-run, backup, and explicit tracked-policy authorization
+6. If the target repo has no `AGENTS.md`, create one with a `# Repository Guidelines` header and the contents of `AGENTS.branch-docs.md`
+7. For an existing untracked `AGENTS.md`, replace the marked `branch-docs-starter` block or append it if missing
+8. If the target repo has no `CLAUDE.md`, create one with a `# Claude Code Instructions` header and the contents of `CLAUDE.branch-docs.md`
+9. For an existing untracked `CLAUDE.md`, replace the marked `branch-docs-starter` block or append it if missing
+10. For an untracked `.gitignore`, replace the marked `branch-docs-starter` block or append it if missing
+11. Remove `tools/agent/init-branch-docs.sh` from the target repo if it was installed by an older starter version
 
 ## Usage
 
@@ -198,13 +335,14 @@ The initializer also updates:
 - Detached HEAD and exact `master` sessions are lightweight by default: agents do not initialize, sync, or update `docs/work/**`, `docs/branches/**`, or their indexes unless the user explicitly opts into documentation
 - Branch-name-only docs remain available as a legacy fallback when no Jira key is available
 - This package's own `AGENTS.md` and `CLAUDE.md` are local-only and are not installed into target repositories
-- The generated target-repo `AGENTS.md`, `CLAUDE.md`, `.codex/`, and `docs/` setup are intended to remain local-only and ignored by Git
+- Generated `AGENTS.md`, `CLAUDE.md`, and `.codex/config.toml` are local-only only when the repository does not already track them; tracked instruction/config files are repository-owned
+- Only the reserved branch-doc paths under `docs/` are local-only; other product documentation remains tracked
 - Claude Code does not read `AGENTS.md` natively, so the installed `CLAUDE.md` imports it with `@AGENTS.md` and carries only the Claude-specific differences; shared policy stays in `AGENTS.branch-docs.md` and must not be duplicated
-- The managed ignore block deliberately does not contain a blanket `/.claude/` rule. Some repositories track files under `.claude/`, for example shared skills, and Git cannot re-include paths inside an excluded directory, so a blanket rule appended after a repository's own rules would silently make those files untrackable. Only `/CLAUDE.md`, `/CLAUDE.local.md`, `/.claude/settings.local.json`, and `/.orca/` are added
+- The managed ignore block deliberately contains no blanket `/docs/`, `/.codex/`, or `/.claude/` rule. Only exact starter-owned paths are ignored so tracked product docs and repository-owned configuration remain visible
 - Re-running an installer overwrites the managed starter files: both initializers, `docs/branches/README.md`, `docs/index/README.md`, `docs/work/README.md`, and the whole `docs/branches/_template/` tree. Local edits to those files are lost
 - `.codex/config.toml` is created only when it is missing and is never upgraded by a later install
 - Only `.agent-work` skeleton files are installed; local scratch subdirectories are not copied into target repositories
-- Repositories that already track files under `docs/` are unsupported by this starter; the install scripts fail instead of trying to merge branch docs into product documentation
+- Repositories may track product documentation under `docs/` as long as none of the reserved branch-doc paths is tracked
 - Branch doc directories are Windows-safe. For example, `sandbox/ovdr-4397` becomes `docs/branches/sandbox~ovdr-4397/`, and `sandbox/qa-5001-collab-block-b` becomes `docs/branches/sandbox~qa-5001-collab-block/`
 - `init-branch-docs.sh` can infer the branch from worktrees whose `.git` file points at a Windows-style gitdir such as `Q:/...`
 - The package does not overwrite existing branch docs

@@ -32,7 +32,10 @@ Workflow:
 
 Notes:
 
-- This `docs/` tree is personal local agent setup in target work repositories and is intentionally ignored by Git.
+- Only the starter-owned `docs/branches/`, `docs/index/`, `docs/work/`, and initializer files are personal local agent setup and intentionally ignored by Git.
+- Other repository-owned product documentation under `docs/` remains tracked and branch-specific.
+- In an Orca linked worktree, `docs/` stays physical and only the three starter-owned directories are junctions to the primary checkout.
+- The Orca Archive Script must run `unbootstrap-worktree.ps1` before worktree deletion; direct `git worktree remove` is unsafe while those Windows junctions exist.
 - The lightweight-mode choice is based on the session-start ref and remains in effect until the user explicitly asks to use branch/work documentation.
 - Native Windows PowerShell is the primary supported environment for creating Jira work docs and branch compatibility junctions.
 - `_template/` is never a canonical document source
