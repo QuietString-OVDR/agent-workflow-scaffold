@@ -501,7 +501,7 @@ function Assert-Candidate {
 		throw "Candidate removes tracked .codex/config.toml. Create a new worktree instead."
 	}
 	if (-not $currentCodexTracked -and $codexBlob.ExitCode -eq 0) {
-		throw "Candidate changes .codex/config.toml from starter-owned untracked to tracked. Create a new worktree instead."
+		throw "Candidate changes .codex/config.toml from untracked or absent to tracked. Create a new worktree instead."
 	}
 	if ($claudeBlob.ExitCode -eq 0) {
 		$hasImport = @($claudeBlob.Lines | Where-Object { $_.Trim() -eq "@AGENTS.md" }).Count -gt 0
@@ -606,7 +606,7 @@ function Assert-PhysicalDirectory {
 function Assert-WorktreeProjectionSafety {
 	param([Parameter(Mandatory = $true)][string]$Repo)
 
-	foreach ($directory in @("docs", ".agent-work", ".codex")) {
+	foreach ($directory in @("docs", ".agent-work")) {
 		$path = Join-Path $Repo $directory
 		if (Get-Item -LiteralPath $path -Force -ErrorAction SilentlyContinue) {
 			Assert-PhysicalDirectory $path "Per-worktree $directory root"
@@ -615,7 +615,6 @@ function Assert-WorktreeProjectionSafety {
 	foreach ($relativePath in @(
 		"AGENTS.md",
 		"CLAUDE.md",
-		".codex/config.toml",
 		"docs/init-branch-docs.ps1",
 		"docs/init-branch-docs.sh"
 	)) {
@@ -757,9 +756,6 @@ function Get-ManagedExcludePatterns {
 	if (-not (Test-GitTracked $Anchor "CLAUDE.md")) {
 		$patterns += "/CLAUDE.md"
 	}
-	if (-not (Test-GitTracked $Anchor ".codex/config.toml")) {
-		$patterns += "/.codex/config.toml"
-	}
 	return $patterns
 }
 
@@ -888,21 +884,6 @@ function Install-PerWorktreeFiles {
 			-BeginMarker "<!-- branch-docs-starter:begin -->" `
 			-EndMarker "<!-- branch-docs-starter:end -->" `
 			-CreateTitle "# Claude Code Instructions"
-	}
-
-	$codexRoot = Join-Path $Repo ".codex"
-	if (-not (Test-Path -LiteralPath $codexRoot)) {
-		New-Item -ItemType Directory -Path $codexRoot -Force | Out-Null
-	}
-	Assert-PhysicalDirectory $codexRoot "Per-worktree .codex root"
-	$configPath = Join-Path $codexRoot "config.toml"
-	$configItem = Get-Item -LiteralPath $configPath -Force -ErrorAction SilentlyContinue
-	if ($configItem -and ($configItem -is [IO.DirectoryInfo] -or
-		($configItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0)) {
-		throw "Codex config must be a regular non-reparse file: $configPath"
-	}
-	if (-not $configItem) {
-		Copy-File (Join-Path $script:PackageRoot ".codex/config.toml") $configPath
 	}
 
 	Copy-File (Join-Path $script:PackageRoot "docs/init-branch-docs.ps1") (Join-Path $Repo "docs/init-branch-docs.ps1")
@@ -1051,7 +1032,7 @@ function Assert-AuthoritativeState {
 	if (-not (Test-PathEqual $TargetContext.Root $AnchorContext.Root)) {
 		Assert-IgnorePolicyPreflight $TargetContext.Root
 	}
-	foreach ($relativePath in @("AGENTS.md", "CLAUDE.md", ".codex/config.toml")) {
+	foreach ($relativePath in @("AGENTS.md", "CLAUDE.md")) {
 		$anchorTracked = Test-GitTracked $AnchorContext.Root $relativePath
 		$targetTracked = Test-GitTracked $TargetContext.Root $relativePath
 		if ($anchorTracked -ne $targetTracked) {

@@ -22,7 +22,6 @@ if errorlevel 1 exit /b 1
 call :validate_tracked_policies
 if errorlevel 1 exit /b 1
 
-if not exist "%target_repo%\.codex\" mkdir "%target_repo%\.codex"
 if not exist "%target_repo%\.agent-work\" mkdir "%target_repo%\.agent-work"
 if not exist "%target_repo%\docs\" mkdir "%target_repo%\docs"
 
@@ -46,14 +45,6 @@ if exist "%target_repo%\tools\agent\init-branch-docs.sh" (
 	2>nul rmdir "%target_repo%\tools\agent"
 	2>nul rmdir "%target_repo%\tools"
 )
-if not exist "%target_repo%\.codex\config.toml" (
-	copy /y "%package_root%\.codex\config.toml" "%target_repo%\.codex\config.toml" >nul
-	if errorlevel 1 exit /b 1
-	echo Created .codex\config.toml in "%target_repo%"
-) else (
-	echo Skipped existing "%target_repo%\.codex\config.toml"
-)
-
 git -C "%target_repo%" ls-files --error-unmatch -- AGENTS.md >nul 2>nul
 if not errorlevel 1 goto :tracked_agents
 if exist "%target_repo%\AGENTS.md" goto :merge_agents
@@ -147,7 +138,6 @@ echo Usage:
 echo   install-to-repo.bat ^<path-to-target-repo^>
 echo.
 echo Behavior:
-echo   - Copy project-scoped Codex config if missing
 echo   - Copy .agent-work skeleton files and local-only branch docs files under docs\
 echo   - Update managed branch-docs starter files without overwriting local work roots
 echo   - Allow tracked product docs outside the reserved branch-docs namespace

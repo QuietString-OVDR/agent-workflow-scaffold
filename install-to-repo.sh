@@ -8,7 +8,6 @@ Usage:
   bash install-to-repo.sh /path/to/target-repo
 
 Behavior:
-  - Copy project-scoped Codex config if missing
   - Copy .agent-work skeleton files and local-only branch docs files under docs/
   - Update managed branch-docs starter files without overwriting local work roots
   - Allow tracked product docs outside the reserved branch-docs namespace
@@ -547,7 +546,6 @@ main() {
 	validate_tracked_policies "$target_repo" "$package_root"
 
 	mkdir -p \
-		"$target_repo/.codex" \
 		"$target_repo/.agent-work" \
 		"$target_repo/docs"
 
@@ -562,13 +560,6 @@ main() {
 		rmdir "$target_repo/tools/agent" 2>/dev/null || true
 		rmdir "$target_repo/tools" 2>/dev/null || true
 	fi
-	if [[ ! -f "$target_repo/.codex/config.toml" ]]; then
-		cp "$package_root/.codex/config.toml" "$target_repo/.codex/config.toml"
-		printf 'Created .codex/config.toml in %s\n' "$target_repo"
-	else
-		printf 'Skipped existing %s/.codex/config.toml\n' "$target_repo"
-	fi
-
 	if is_git_tracked "$target_repo" "AGENTS.md"; then
 		printf 'Preserved compatible tracked %s/AGENTS.md\n' "$target_repo"
 	elif [[ ! -f "$target_repo/AGENTS.md" ]]; then

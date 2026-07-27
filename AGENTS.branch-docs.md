@@ -7,7 +7,6 @@
 ## Working Files
 - Always create and use `./.agent-work/` for generated artifacts, scratch files, downloads, logs, and temporary outputs.
 - Do not leave temporary files elsewhere unless explicitly requested.
-- Treat `./.codex/` as Codex settings/config only. Do not use it for high-churn work products such as branch docs, generated outputs, downloads, logs, or temporary artifacts.
 
 ## Session-Start Documentation Gate
 - At the start of each agent session, resolve the top-level or super project Git state before applying the branch documentation workflow.
@@ -53,7 +52,7 @@
 - Branch-docs-starter-installed files in target work repositories are personal local agent setup and must not be committed unless the user explicitly asks.
 - Repository-owned tracked product documentation under `docs/**` remains tracked and branch-specific. Do not move, ignore, overwrite, or expose it through a whole-`docs` junction.
 - Local-only starter paths are limited to `docs/branches/**`, `docs/work/**`, `docs/index/**`, `docs/init-branch-docs.ps1`, and `docs/init-branch-docs.sh`.
-- `AGENTS.md`, `CLAUDE.md`, and `.codex/config.toml` are local-only only when the repository does not already track them. Existing tracked instruction/config files are repository-owned and must remain byte-preserved during worktree bootstrap.
+- `AGENTS.md` and `CLAUDE.md` are local-only only when the repository does not already track them. Existing tracked instruction files are repository-owned and must remain byte-preserved during worktree bootstrap.
 - `docs/branches/**` is local-only agent working context and is intentionally ignored by Git.
 - `docs/work/**` and `docs/index/**` are local-only agent working context and are intentionally ignored by Git.
 - Do not force-add branch-docs-starter files or branch docs unless the user explicitly asks.

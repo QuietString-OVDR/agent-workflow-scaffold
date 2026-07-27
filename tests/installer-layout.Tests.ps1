@@ -141,6 +141,8 @@ if ($batchResult.ExitCode -ne 0) { Write-Host $batchResult.Output }
 if ($shellResult.ExitCode -ne 0) { Write-Host $shellResult.Output }
 Check "batch installer exit 0" ($batchResult.ExitCode -eq 0)
 Check "shell installer exit 0" ($shellResult.ExitCode -eq 0)
+Check "batch installer does not create .codex" (-not (Test-Path -LiteralPath (Join-Path $batchRepo ".codex")))
+Check "shell installer does not create .codex" (-not (Test-Path -LiteralPath (Join-Path $shellRepo ".codex")))
 Check "batch product doc byte-preserved" (
 	(Get-FileHash -Algorithm SHA256 -LiteralPath (Join-Path $batchRepo "docs/product/guide.md")).Hash -eq $batchProductHash
 )

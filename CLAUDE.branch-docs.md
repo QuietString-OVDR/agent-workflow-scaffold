@@ -34,7 +34,6 @@ unchanged. Claude Code may be launched without permission prompts, so nothing bu
 rules prevents committing local-only agent setup; follow them deliberately rather than
 relying on a tool to refuse.
 
-`./.claude/` is Claude Code configuration only. The rule the imported sections apply to
-`./.codex/` applies to it as well: no generated outputs, downloads, logs, or temporary
-artifacts. Those belong in `./.agent-work/`.
+`./.claude/` is Claude Code configuration only. Do not use it for generated outputs,
+downloads, logs, or temporary artifacts. Those belong in `./.agent-work/`.
 <!-- branch-docs-starter:end -->

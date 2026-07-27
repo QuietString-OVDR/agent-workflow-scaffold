@@ -55,6 +55,7 @@ function New-TestRepo {
 	param(
 		[Parameter(Mandatory = $true)][string]$Name,
 		[switch]$CompatibleInstructions,
+		[switch]$TrackedCodexConfig,
 		[switch]$TrackedProductDocs,
 		[switch]$BlanketIgnore
 	)
@@ -79,11 +80,17 @@ function New-TestRepo {
 		$agents = "# Repository Guidelines`n`n" + [IO.File]::ReadAllText((Join-Path $packageRoot "AGENTS.branch-docs.md"))
 		[IO.File]::WriteAllText((Join-Path $repo "AGENTS.md"), $agents, (New-Object Text.UTF8Encoding $false))
 		[IO.File]::WriteAllText((Join-Path $repo "CLAUDE.md"), "@AGENTS.md`n", (New-Object Text.UTF8Encoding $false))
-		New-Item -ItemType Directory -Path (Join-Path $repo ".codex") -Force | Out-Null
-		Copy-Item -LiteralPath (Join-Path $packageRoot ".codex/config.toml") -Destination (Join-Path $repo ".codex/config.toml")
 	} else {
 		[IO.File]::WriteAllText((Join-Path $repo "AGENTS.md"), "# Repository Guidelines`n`nNo starter compatibility block.`n")
 		[IO.File]::WriteAllText((Join-Path $repo "CLAUDE.md"), "@AGENTS.md`n")
+	}
+	if ($TrackedCodexConfig) {
+		New-Item -ItemType Directory -Path (Join-Path $repo ".codex") -Force | Out-Null
+		[IO.File]::WriteAllText(
+			(Join-Path $repo ".codex/config.toml"),
+			"# repository-owned Codex configuration`n",
+			(New-Object Text.UTF8Encoding $false)
+		)
 	}
 
 	if ($BlanketIgnore) {
@@ -366,6 +373,7 @@ Invoke-Bootstrap $migrationRepo $migrationRepo | Out-Null
 Check "committed migrated policy bootstraps cleanly" (
 	((Invoke-Git $migrationRepo @("status", "--porcelain=v1")) -join "`n") -eq ""
 )
+Check "bootstrap does not create .codex" (-not (Test-Path -LiteralPath (Join-Path $migrationRepo ".codex")))
 $malformedMigrationRepo = New-TestRepo "migration-malformed" -CompatibleInstructions -TrackedProductDocs
 [IO.File]::WriteAllText(
 	(Join-Path $malformedMigrationRepo ".gitignore"),
@@ -430,7 +438,7 @@ Check "reparse bootstrap created no reserved store" (-not (Test-Path -LiteralPat
 Check "test reparse leaf cleanup exit 0" ($LASTEXITCODE -eq 0)
 
 Write-Output "=== anchor and child projection ==="
-$anchor = New-TestRepo "anchor" -CompatibleInstructions -TrackedProductDocs
+$anchor = New-TestRepo "anchor" -CompatibleInstructions -TrackedCodexConfig -TrackedProductDocs
 $agentsHash = Get-FileHashText (Join-Path $anchor "AGENTS.md")
 $claudeHash = Get-FileHashText (Join-Path $anchor "CLAUDE.md")
 $configHash = Get-FileHashText (Join-Path $anchor ".codex/config.toml")

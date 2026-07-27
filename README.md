@@ -13,7 +13,6 @@ Core rules:
 - Local-only starter paths are limited to `docs/branches/**`, `docs/index/**`, `docs/work/**`, and the two initializer files
 - The installers fail only when a repository tracks one of those reserved paths; tracked product docs elsewhere are supported
 - Generated artifacts, scratch files, downloads, logs, and temporary outputs live under `./.agent-work/`
-- `./.codex/` is reserved for project-scoped Codex configuration files
 - Agent replies and internal branch docs must be written in English
 - Share docs under `share/` must be written in Korean
 - Before code lookup, agents must read the branch README and `status/code-map.md` and use the code map as the first search index
@@ -21,8 +20,6 @@ Core rules:
 - Current architecture lives in `architecture/current-architecture.md`; agents update that file instead of creating additional architecture drafts by default
 - Teammate-facing or externally shareable documents live under `share/<doc-type>/`, such as `share/guides/` and `share/specs/`
 - Implementation plans are lifecycle-managed through `plans/README.md`, `plans/active.md`, and `archive/plans/`
-
-This layout reflects the OpenAI Codex guidance for `workspace-write` sandboxes, where `.codex/` is treated as a protected path.
 
 ## Included Files
 
@@ -32,8 +29,6 @@ This layout reflects the OpenAI Codex guidance for `workspace-write` sandboxes, 
   - Branch-docs guidance block used to create or update target repository `AGENTS.md` files
 - `CLAUDE.branch-docs.md`
   - Claude Code adapter block used to create or update target repository `CLAUDE.md` files; it imports `AGENTS.md` with `@AGENTS.md` and only adds the parts where Claude Code's tooling differs
-- `.codex/config.toml`
-  - Example project-scoped Codex profiles
 - `.agent-work/.gitignore` and `.agent-work/README.md`
   - Working-area skeleton files for generated outputs
 - `.agent-work.gitignore.block`
@@ -73,17 +68,16 @@ install-to-repo.bat C:\path\to\target-repo
 
 The install script:
 
-1. Creates `.codex/config.toml` if it does not exist
-2. Copies `.agent-work` skeleton files and the local-only branch-docs setup under `docs/`
-3. Updates managed starter files such as initializers, README files, and templates without overwriting local work roots or local index JSON
-4. Fails before writing if the target tracks a reserved branch-doc path
-5. Preserves tracked `AGENTS.md`, `CLAUDE.md`, and `.gitignore` byte-for-byte after verifying exact compatibility; incompatible tracked policy files fail before any write and must use the explicit migration script
-6. Creates `AGENTS.md` from `AGENTS.branch-docs.md` if it does not exist
-7. Appends or replaces the marked `AGENTS.branch-docs.md` block only when `AGENTS.md` is untracked
-8. Creates `CLAUDE.md` from `CLAUDE.branch-docs.md` if it does not exist
-9. Appends or replaces the marked `CLAUDE.branch-docs.md` block only when `CLAUDE.md` is untracked
-10. Appends or replaces local-only starter and `.agent-work/` ignore rules only when `.gitignore` is untracked
-11. Removes the old `tools/agent/init-branch-docs.sh` helper if present
+1. Copies `.agent-work` skeleton files and the local-only branch-docs setup under `docs/`
+2. Updates managed starter files such as initializers, README files, and templates without overwriting local work roots or local index JSON
+3. Fails before writing if the target tracks a reserved branch-doc path
+4. Preserves tracked `AGENTS.md`, `CLAUDE.md`, and `.gitignore` byte-for-byte after verifying exact compatibility; incompatible tracked policy files fail before any write and must use the explicit migration script
+5. Creates `AGENTS.md` from `AGENTS.branch-docs.md` if it does not exist
+6. Appends or replaces the marked `AGENTS.branch-docs.md` block only when `AGENTS.md` is untracked
+7. Creates `CLAUDE.md` from `CLAUDE.branch-docs.md` if it does not exist
+8. Appends or replaces the marked `CLAUDE.branch-docs.md` block only when `CLAUDE.md` is untracked
+9. Appends or replaces local-only starter and `.agent-work/` ignore rules only when `.gitignore` is untracked
+10. Removes the old `tools/agent/init-branch-docs.sh` helper if present
 
 Both installers require `git` on `PATH`. The install aborts when `git` is missing, when the
 tracked-path query fails, when `git rev-parse` fails for any reason other than "not a git
@@ -249,17 +243,16 @@ Run the native-Windows regression suites with disposable fixture roots under `.a
 
 ## Manual Install
 
-1. Copy `.codex/config.toml` into the target repo's `.codex/`
-2. Confirm no tracked path collides with `docs/branches`, `docs/index`, `docs/work`, or the two initializer paths
-3. Copy `.agent-work/.gitignore`, `.agent-work/README.md`, and `docs/`
-4. Before touching `AGENTS.md`, `CLAUDE.md`, or `.gitignore`, check whether Git tracks it
-5. Preserve a compatible tracked policy file byte-for-byte; for an incompatible tracked file, stop and use `migrate-orca-worktree-layout.ps1` with dry-run, backup, and explicit tracked-policy authorization
-6. If the target repo has no `AGENTS.md`, create one with a `# Repository Guidelines` header and the contents of `AGENTS.branch-docs.md`
-7. For an existing untracked `AGENTS.md`, replace the marked `branch-docs-starter` block or append it if missing
-8. If the target repo has no `CLAUDE.md`, create one with a `# Claude Code Instructions` header and the contents of `CLAUDE.branch-docs.md`
-9. For an existing untracked `CLAUDE.md`, replace the marked `branch-docs-starter` block or append it if missing
-10. For an untracked `.gitignore`, replace the marked `branch-docs-starter` block or append it if missing
-11. Remove `tools/agent/init-branch-docs.sh` from the target repo if it was installed by an older starter version
+1. Confirm no tracked path collides with `docs/branches`, `docs/index`, `docs/work`, or the two initializer paths
+2. Copy `.agent-work/.gitignore`, `.agent-work/README.md`, and `docs/`
+3. Before touching `AGENTS.md`, `CLAUDE.md`, or `.gitignore`, check whether Git tracks it
+4. Preserve a compatible tracked policy file byte-for-byte; for an incompatible tracked file, stop and use `migrate-orca-worktree-layout.ps1` with dry-run, backup, and explicit tracked-policy authorization
+5. If the target repo has no `AGENTS.md`, create one with a `# Repository Guidelines` header and the contents of `AGENTS.branch-docs.md`
+6. For an existing untracked `AGENTS.md`, replace the marked `branch-docs-starter` block or append it if missing
+7. If the target repo has no `CLAUDE.md`, create one with a `# Claude Code Instructions` header and the contents of `CLAUDE.branch-docs.md`
+8. For an existing untracked `CLAUDE.md`, replace the marked `branch-docs-starter` block or append it if missing
+9. For an untracked `.gitignore`, replace the marked `branch-docs-starter` block or append it if missing
+10. Remove `tools/agent/init-branch-docs.sh` from the target repo if it was installed by an older starter version
 
 ## Usage
 
@@ -335,12 +328,12 @@ The initializer also updates:
 - Detached HEAD and exact `master` sessions are lightweight by default: agents do not initialize, sync, or update `docs/work/**`, `docs/branches/**`, or their indexes unless the user explicitly opts into documentation
 - Branch-name-only docs remain available as a legacy fallback when no Jira key is available
 - This package's own `AGENTS.md` and `CLAUDE.md` are local-only and are not installed into target repositories
-- Generated `AGENTS.md`, `CLAUDE.md`, and `.codex/config.toml` are local-only only when the repository does not already track them; tracked instruction/config files are repository-owned
+- Generated `AGENTS.md` and `CLAUDE.md` are local-only only when the repository does not already track them; tracked instruction files are repository-owned
 - Only the reserved branch-doc paths under `docs/` are local-only; other product documentation remains tracked
 - Claude Code does not read `AGENTS.md` natively, so the installed `CLAUDE.md` imports it with `@AGENTS.md` and carries only the Claude-specific differences; shared policy stays in `AGENTS.branch-docs.md` and must not be duplicated
 - The managed ignore block deliberately contains no blanket `/docs/`, `/.codex/`, or `/.claude/` rule. Only exact starter-owned paths are ignored so tracked product docs and repository-owned configuration remain visible
 - Re-running an installer overwrites the managed starter files: both initializers, `docs/branches/README.md`, `docs/index/README.md`, `docs/work/README.md`, and the whole `docs/branches/_template/` tree. Local edits to those files are lost
-- `.codex/config.toml` is created only when it is missing and is never upgraded by a later install
+- The starter does not create, copy, or ignore `.codex/config.toml`; repository-owned tracked Codex configuration is left untouched and protected by worktree transition checks
 - Only `.agent-work` skeleton files are installed; local scratch subdirectories are not copied into target repositories
 - Repositories may track product documentation under `docs/` as long as none of the reserved branch-doc paths is tracked
 - Branch doc directories are Windows-safe. For example, `sandbox/ovdr-4397` becomes `docs/branches/sandbox~ovdr-4397/`, and `sandbox/qa-5001-collab-block-b` becomes `docs/branches/sandbox~qa-5001-collab-block/`
