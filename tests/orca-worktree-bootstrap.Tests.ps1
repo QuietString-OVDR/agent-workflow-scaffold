@@ -571,7 +571,9 @@ Invoke-Git $anchor @("worktree", "remove", "--force", $ownershipChild) | Out-Nul
 $unapprovedChild = Join-Path $fixtureRoot "unapproved-child"
 Invoke-Git $anchor @("worktree", "add", "-q", "-b", "feature/unapproved-ignore", $unapprovedChild) | Out-Null
 [IO.File]::AppendAllText((Join-Path $unapprovedChild ".gitignore"), "new-ignore-rule/`n")
-Invoke-Git $unapprovedChild @("add", ".gitignore") | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $unapprovedChild "config/nested") -Force | Out-Null
+[IO.File]::WriteAllText((Join-Path $unapprovedChild "config/nested/.gitignore"), "nested-cache/`n")
+Invoke-Git $unapprovedChild @("add", ".gitignore", "config/nested/.gitignore") | Out-Null
 Invoke-Git $unapprovedChild @("commit", "-q", "-m", "change ignore policy") | Out-Null
 $excludePath = Join-Path ((Invoke-Git $anchor @("rev-parse", "--path-format=absolute", "--git-common-dir") | Select-Object -First 1)) "info/exclude"
 $excludeHash = Get-FileHashText $excludePath
@@ -580,6 +582,72 @@ Check "unapproved child fingerprint fails before writes" ($result.Output -match 
 Check "unapproved child creates no agent-work" (-not (Test-Path -LiteralPath (Join-Path $unapprovedChild ".agent-work")))
 Check "unapproved child creates no branch projection" (-not (Get-Item -LiteralPath (Join-Path $unapprovedChild "docs/branches") -Force -ErrorAction SilentlyContinue))
 Check "unapproved child preserves common exclude" ((Get-FileHashText $excludePath) -eq $excludeHash)
+$unapprovedChildHead = (Invoke-Git $unapprovedChild @("rev-parse", "HEAD") | Select-Object -First 1)
+$dirtyChildApprovalBackup = Join-Path $fixtureRoot "dirty-child-ignore-policy-approval-backup"
+[IO.File]::AppendAllText((Join-Path $unapprovedChild ".gitignore"), "uncommitted-ignore-rule/`n")
+$result = Invoke-Bootstrap $unapprovedChild $anchor -ExpectFailure -ExtraArguments @(
+	"-ApproveCurrentIgnorePolicy",
+	"-ExpectedHeadOid", $unapprovedChildHead,
+	"-ApprovalBackupRoot", $dirtyChildApprovalBackup
+)
+Check "dirty child ignore approval is rejected" (
+	$result.Output -match "Tracked \.gitignore (differs from the index|files differ from the reviewed HEAD)"
+)
+Check "dirty child ignore approval creates no backup" (-not (Test-Path -LiteralPath $dirtyChildApprovalBackup))
+Invoke-Git $unapprovedChild @("restore", "--", ".gitignore") | Out-Null
+$stagedNestedApprovalBackup = Join-Path $fixtureRoot "staged-nested-ignore-policy-approval-backup"
+[IO.File]::AppendAllText((Join-Path $unapprovedChild "config/nested/.gitignore"), "staged-nested-rule/`n")
+Invoke-Git $unapprovedChild @("add", "config/nested/.gitignore") | Out-Null
+$result = Invoke-Bootstrap $unapprovedChild $anchor -ExpectFailure -ExtraArguments @(
+	"-ApproveCurrentIgnorePolicy",
+	"-ExpectedHeadOid", $unapprovedChildHead,
+	"-ApprovalBackupRoot", $stagedNestedApprovalBackup
+)
+Check "staged nested ignore approval is rejected" ($result.Output -match "files differ from the reviewed HEAD")
+Check "staged nested ignore approval creates no backup" (-not (Test-Path -LiteralPath $stagedNestedApprovalBackup))
+Invoke-Git $unapprovedChild @("restore", "--staged", "--worktree", "--", "config/nested/.gitignore") | Out-Null
+$childApprovalBackup = Join-Path $fixtureRoot "child-ignore-policy-approval-backup"
+$result = Invoke-Bootstrap $unapprovedChild $anchor -ExtraArguments @(
+	"-ApproveCurrentIgnorePolicy",
+	"-ExpectedHeadOid", $unapprovedChildHead,
+	"-ApprovalBackupRoot", $childApprovalBackup
+)
+Check "explicit child ignore fingerprint approval succeeds" ($result.ExitCode -eq 0)
+Check "child ignore approval backs up prior manifest" (
+	Test-Path -LiteralPath (Join-Path $childApprovalBackup "manifest.json") -PathType Leaf
+)
+$childApprovalRecord = [IO.File]::ReadAllText(
+	(Join-Path $childApprovalBackup "ignore-policy-approval.json")
+) | ConvertFrom-Json
+Check "child ignore approval records reviewed checkout" (
+	[string]::Equals(
+		[IO.Path]::GetFullPath($childApprovalRecord.repoRoot),
+		[IO.Path]::GetFullPath($unapprovedChild),
+		[StringComparison]::OrdinalIgnoreCase
+	)
+)
+Check "child ignore approval records anchor" (
+	[string]::Equals(
+		[IO.Path]::GetFullPath($childApprovalRecord.anchorRepoRoot),
+		[IO.Path]::GetFullPath($anchor),
+		[StringComparison]::OrdinalIgnoreCase
+	)
+)
+Check "child ignore approval creates no agent-work" (
+	-not (Test-Path -LiteralPath (Join-Path $unapprovedChild ".agent-work"))
+)
+Check "child ignore approval creates no branch projection" (
+	-not (Get-Item -LiteralPath (Join-Path $unapprovedChild "docs/branches") -Force -ErrorAction SilentlyContinue)
+)
+Invoke-Bootstrap $unapprovedChild $anchor | Out-Null
+Check "approved child bootstrap creates branch projection" (
+	Test-ExactJunction (Join-Path $unapprovedChild "docs/branches") (Join-Path $anchor "docs/branches")
+)
+& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+	-File $unbootstrap `
+	-TargetRepo $unapprovedChild `
+	-AnchorRepo $anchor
+Check "approved child unbootstrap exit 0" ($LASTEXITCODE -eq 0)
 Invoke-Git $anchor @("worktree", "remove", "--force", $unapprovedChild) | Out-Null
 
 $child = Join-Path $fixtureRoot "child"

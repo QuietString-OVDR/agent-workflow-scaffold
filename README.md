@@ -201,21 +201,26 @@ requires `-AllowTrackedPolicyChanges` before changing a tracked file. Its ignore
 normalization collapses duplicate valid starter blocks and removes exact legacy `/docs/`,
 `docs/`, `/.codex/`, and `.codex/` blanket lines, then verifies the result before success.
 
-After a reviewed `.gitignore` migration is committed in an already enrolled anchor, approve
-the new tracked ignore fingerprint with the exact reviewed HEAD and a new backup directory:
+After a reviewed `.gitignore` migration is committed in an enrolled clone, approve the new
+tracked ignore fingerprint from the reviewed checkout with its exact HEAD and a new backup
+directory. The reviewed checkout may be the anchor or a same-clone linked worktree:
 
 ```powershell
-$reviewedHead = git -C "Q:\path\to\primary" rev-parse HEAD
-& "T:\OneDrive - KRAFTON\Work\agent-setup\branch-docs-starter\bootstrap-worktree.ps1" `
-  -TargetRepo "Q:\path\to\primary" `
-  -AnchorRepo "Q:\path\to\primary" `
+$reviewedCheckout = "Q:\path\to\reviewed-checkout"
+$anchorRepo = "Q:\path\to\primary"
+$reviewedHead = git -C $reviewedCheckout rev-parse HEAD
+& "T:\OneDrive - KRAFTON\Work\agent-setup\branch-docs-starter-worktrees\orca-worktree-bootstrap\bootstrap-worktree.ps1" `
+  -TargetRepo $reviewedCheckout `
+  -AnchorRepo $anchorRepo `
   -ApproveCurrentIgnorePolicy `
   -ExpectedHeadOid $reviewedHead `
   -ApprovalBackupRoot "Q:\safe-backups\branch-docs-ignore-approval-20260724"
 ```
 
 This is the only normal path that adds a new fingerprint to the manifest. It revalidates
-the anchor under the lifecycle lock and backs up the prior manifest before changing it.
+the reviewed checkout and anchor under the lifecycle lock and backs up the prior manifest
+before changing it. Every tracked `.gitignore` (root or nested) must match the reviewed
+HEAD exactly; staged or unstaged changes are rejected.
 
 Once a checkout is enrolled, do not use direct `git pull`, rebase, cherry-pick sequences, or
 unverified branch/tag/SHA transitions. Fetch first, verify the candidate, and transition to

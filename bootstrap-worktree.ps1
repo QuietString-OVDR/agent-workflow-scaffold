@@ -1245,9 +1245,6 @@ if ($ApproveCurrentIgnorePolicy) {
 	if (-not $manifest) {
 		throw "Ignore-policy approval requires an existing manifest."
 	}
-	if (-not (Test-PathEqual $targetContext.Root $anchorContext.Root)) {
-		throw "Ignore-policy approval must run against the primary anchor worktree."
-	}
 	$approvalLock = $null
 	try {
 		$approvalLock = Enter-LifecycleLock $lockPath $LockTimeoutSeconds
@@ -1267,8 +1264,20 @@ if ($ApproveCurrentIgnorePolicy) {
 		if ($expected -ne $currentOid) {
 			throw "HEAD OID mismatch. Expected $expected, found $currentOid."
 		}
+		$ignoreDiff = Invoke-Git `
+			-Repo $targetContext.Root `
+			-Arguments @("diff", "--quiet", "HEAD", "--", ".gitignore", ":(glob)**/.gitignore") `
+			-AllowFailure
+		if ($ignoreDiff.ExitCode -ne 0) {
+			throw "Tracked .gitignore files differ from the reviewed HEAD; commit or restore them before approval."
+		}
+		$reviewedFingerprint = Get-IgnoreFingerprint $targetContext.Root $currentOid
+		$indexedFingerprint = Get-IgnoreFingerprint $targetContext.Root
+		if ($indexedFingerprint -ne $reviewedFingerprint) {
+			throw "Tracked .gitignore index differs from the reviewed HEAD; commit or restore it before approval."
+		}
 		Verify-EffectiveIgnore $targetContext.Root @($manifest.commonExcludePatterns)
-		$currentFingerprint = Get-IgnoreFingerprint $targetContext.Root
+		$currentFingerprint = $indexedFingerprint
 		if ($manifest.approvedIgnoreFingerprints -contains $currentFingerprint) {
 			Write-Output "Ignore-policy fingerprint is already approved: $currentFingerprint"
 			exit 0
@@ -1282,7 +1291,8 @@ if ($ApproveCurrentIgnorePolicy) {
 		Copy-Item -LiteralPath $manifestPath -Destination (Join-Path $approvalBackup "manifest.json")
 		$approvalRecord = [pscustomobject][ordered]@{
 			schemaVersion = 1
-			repoRoot = $anchorContext.Root
+			repoRoot = $targetContext.Root
+			anchorRepoRoot = $anchorContext.Root
 			headOid = $currentOid
 			approvedIgnoreFingerprint = $currentFingerprint
 			createdAt = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssK")
