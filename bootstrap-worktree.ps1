@@ -316,12 +316,6 @@ function Assert-TrackedInstructionCompatibility {
 			throw "Tracked CLAUDE.md differs from the index; refusing to bootstrap."
 		}
 	}
-
-	if (Test-GitTracked $Repo ".codex/config.toml") {
-		if ((Invoke-Git -Repo $Repo -Arguments @("diff", "--quiet", "--", ".codex/config.toml") -AllowFailure).ExitCode -ne 0) {
-			throw "Tracked .codex/config.toml differs from the index; refusing to bootstrap."
-		}
-	}
 }
 
 function Assert-IgnorePolicyPreflight {

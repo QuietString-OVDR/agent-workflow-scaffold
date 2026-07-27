@@ -453,6 +453,42 @@ Check "anchor tracked CLAUDE preserved" ((Get-FileHashText (Join-Path $anchor "C
 Check "anchor tracked config preserved" ((Get-FileHashText (Join-Path $anchor ".codex/config.toml")) -eq $configHash)
 Check "anchor tracked product doc preserved" (Test-GitPathClean $anchor "docs/product/guide.md")
 
+Write-Output "=== dirty tracked Codex config is preserved ==="
+$dirtyConfigAnchor = New-TestRepo "dirty-config-anchor" -CompatibleInstructions -TrackedCodexConfig -TrackedProductDocs
+$dirtyConfigPath = Join-Path $dirtyConfigAnchor ".codex/config.toml"
+[IO.File]::AppendAllText($dirtyConfigPath, "local_project_override = true`n")
+$dirtyConfigHash = Get-FileHashText $dirtyConfigPath
+$dirtyConfigDiff = (Invoke-Git $dirtyConfigAnchor @("diff", "--", ".codex/config.toml")) -join "`n"
+Invoke-Bootstrap $dirtyConfigAnchor $dirtyConfigAnchor | Out-Null
+Check "dirty tracked config bytes preserved after anchor bootstrap" (
+	(Get-FileHashText $dirtyConfigPath) -eq $dirtyConfigHash
+)
+Check "dirty tracked config diff preserved after anchor bootstrap" (
+	((Invoke-Git $dirtyConfigAnchor @("diff", "--", ".codex/config.toml")) -join "`n") -ceq $dirtyConfigDiff
+)
+$dirtyConfigChild = Join-Path $fixtureRoot "dirty-config-child"
+Invoke-Git $dirtyConfigAnchor @("worktree", "add", "-q", "-b", "feature/dirty-config-child", $dirtyConfigChild) | Out-Null
+$dirtyChildConfigPath = Join-Path $dirtyConfigChild ".codex/config.toml"
+[IO.File]::AppendAllText($dirtyChildConfigPath, "child_local_override = true`n")
+$dirtyChildConfigHash = Get-FileHashText $dirtyChildConfigPath
+$dirtyChildConfigDiff = (Invoke-Git $dirtyConfigChild @("diff", "--", ".codex/config.toml")) -join "`n"
+Invoke-Bootstrap $dirtyConfigChild $dirtyConfigAnchor | Out-Null
+Check "dirty anchor config bytes preserved after child bootstrap" (
+	(Get-FileHashText $dirtyConfigPath) -eq $dirtyConfigHash
+)
+Check "dirty child config bytes preserved after child bootstrap" (
+	(Get-FileHashText $dirtyChildConfigPath) -eq $dirtyChildConfigHash
+)
+Check "dirty child config diff preserved after child bootstrap" (
+	((Invoke-Git $dirtyConfigChild @("diff", "--", ".codex/config.toml")) -join "`n") -ceq $dirtyChildConfigDiff
+)
+& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+	-File $unbootstrap `
+	-TargetRepo $dirtyConfigChild `
+	-AnchorRepo $dirtyConfigAnchor
+Check "dirty-config child unbootstrap exit 0" ($LASTEXITCODE -eq 0)
+Invoke-Git $dirtyConfigAnchor @("worktree", "remove", "--force", $dirtyConfigChild) | Out-Null
+
 Write-Output "=== verified commit transition inputs ==="
 $anchorHead = (Invoke-Git $anchor @("rev-parse", "HEAD") | Select-Object -First 1)
 $result = Invoke-Bootstrap $anchor $anchor -ExtraArguments @("-VerifyOnly", "-CandidateRef", "HEAD")

@@ -191,7 +191,7 @@ The bootstrap fails closed when:
 - the anchor is itself a linked worktree
 - any current or known ref tracks a reserved path, including a Windows case-fold collision
 - tracked `AGENTS.md` lacks the compatibility block
-- tracked instruction/config files differ from the index
+- tracked instruction files differ from the index
 - `.gitignore` contains duplicate starter markers or blanket `/docs/` or `/.codex/`
 - `docs/` is a reparse point, a reserved child path is physical, or a junction has the wrong target
 
@@ -333,7 +333,7 @@ The initializer also updates:
 - Claude Code does not read `AGENTS.md` natively, so the installed `CLAUDE.md` imports it with `@AGENTS.md` and carries only the Claude-specific differences; shared policy stays in `AGENTS.branch-docs.md` and must not be duplicated
 - The managed ignore block deliberately contains no blanket `/docs/`, `/.codex/`, or `/.claude/` rule. Only exact starter-owned paths are ignored so tracked product docs and repository-owned configuration remain visible
 - Re-running an installer overwrites the managed starter files: both initializers, `docs/branches/README.md`, `docs/index/README.md`, `docs/work/README.md`, and the whole `docs/branches/_template/` tree. Local edits to those files are lost
-- The starter does not create, copy, or ignore `.codex/config.toml`; repository-owned tracked Codex configuration is left untouched and protected by worktree transition checks
+- The starter does not create, copy, ignore, or modify `.codex/config.toml`; repository-owned tracked Codex configuration, including working-tree changes, is byte-preserved while tracked/untracked ownership transitions remain protected by candidate-ref checks
 - Only `.agent-work` skeleton files are installed; local scratch subdirectories are not copied into target repositories
 - Repositories may track product documentation under `docs/` as long as none of the reserved branch-doc paths is tracked
 - Branch doc directories are Windows-safe. For example, `sandbox/ovdr-4397` becomes `docs/branches/sandbox~ovdr-4397/`, and `sandbox/qa-5001-collab-block-b` becomes `docs/branches/sandbox~qa-5001-collab-block/`
