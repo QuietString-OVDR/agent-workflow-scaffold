@@ -7,7 +7,6 @@
 ## Working Files
 - Always create and use `./.agent-work/` for generated artifacts, scratch files, downloads, logs, and temporary outputs.
 - Do not leave temporary files elsewhere unless explicitly requested.
-- Treat `./.codex/` as Codex settings/config only. Do not use it for high-churn work products such as branch docs, generated outputs, downloads, logs, or temporary artifacts.
 
 ## Session-Start Documentation Gate
 - At the start of each agent session, resolve the top-level or super project Git state before applying the branch documentation workflow.
@@ -51,7 +50,7 @@
 
 ## Branch Documentation Git Policy
 - Branch-docs-starter-installed files in target work repositories are personal local agent setup and must not be committed unless the user explicitly asks.
-- `AGENTS.md`, `CLAUDE.md`, `.codex/`, local `.claude/` settings, and `docs/**` are intentionally local-only in target work repositories.
+- `AGENTS.md`, `CLAUDE.md`, local `.claude/` settings, and `docs/**` are intentionally local-only in target work repositories.
 - `docs/branches/**` is local-only agent working context and is intentionally ignored by Git.
 - `docs/work/**` and `docs/index/**` are local-only agent working context and are intentionally ignored by Git.
 - Do not force-add branch-docs-starter files or branch docs unless the user explicitly asks.

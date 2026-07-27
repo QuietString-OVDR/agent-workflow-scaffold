@@ -20,7 +20,6 @@ for %%I in ("%target_repo%") do set "target_repo=%%~fI"
 call :fail_if_docs_tracked "%target_repo%"
 if errorlevel 1 exit /b 1
 
-if not exist "%target_repo%\.codex\" mkdir "%target_repo%\.codex"
 if not exist "%target_repo%\.agent-work\" mkdir "%target_repo%\.agent-work"
 if not exist "%target_repo%\docs\" mkdir "%target_repo%\docs"
 
@@ -44,14 +43,6 @@ if exist "%target_repo%\tools\agent\init-branch-docs.sh" (
 	2>nul rmdir "%target_repo%\tools\agent"
 	2>nul rmdir "%target_repo%\tools"
 )
-if not exist "%target_repo%\.codex\config.toml" (
-	copy /y "%package_root%\.codex\config.toml" "%target_repo%\.codex\config.toml" >nul
-	if errorlevel 1 exit /b 1
-	echo Created .codex\config.toml in "%target_repo%"
-) else (
-	echo Skipped existing "%target_repo%\.codex\config.toml"
-)
-
 if exist "%target_repo%\AGENTS.md" goto :merge_agents
 call :create_from_block "# Repository Guidelines" "%package_root%\AGENTS.branch-docs.md" "%target_repo%\AGENTS.md"
 if errorlevel 1 exit /b 1
@@ -127,7 +118,6 @@ echo Usage:
 echo   install-to-repo.bat ^<path-to-target-repo^>
 echo.
 echo Behavior:
-echo   - Copy project-scoped Codex config if missing
 echo   - Copy .agent-work skeleton files and local-only branch docs files under docs\
 echo   - Update managed branch-docs starter files without overwriting local work roots
 echo   - Fail if the target repository already tracks files under docs\

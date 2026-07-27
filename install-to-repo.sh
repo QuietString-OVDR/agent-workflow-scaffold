@@ -416,7 +416,6 @@ main() {
 	fail_if_docs_tracked "$target_repo"
 
 	mkdir -p \
-		"$target_repo/.codex" \
 		"$target_repo/.agent-work" \
 		"$target_repo/docs"
 
@@ -431,13 +430,6 @@ main() {
 		rmdir "$target_repo/tools/agent" 2>/dev/null || true
 		rmdir "$target_repo/tools" 2>/dev/null || true
 	fi
-	if [[ ! -f "$target_repo/.codex/config.toml" ]]; then
-		cp "$package_root/.codex/config.toml" "$target_repo/.codex/config.toml"
-		printf 'Created .codex/config.toml in %s\n' "$target_repo"
-	else
-		printf 'Skipped existing %s/.codex/config.toml\n' "$target_repo"
-	fi
-
 	if [[ ! -f "$target_repo/AGENTS.md" ]]; then
 		if ! create_from_block '# Repository Guidelines' "$package_root/AGENTS.branch-docs.md" "$target_repo/AGENTS.md" "$target_repo/.agent-work"; then
 			printf 'Unable to create %s/AGENTS.md\n' "$target_repo" >&2

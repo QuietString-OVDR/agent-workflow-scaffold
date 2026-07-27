@@ -12,7 +12,6 @@
 ## Working Files
 - Always create and use `./.agent-work/` for generated artifacts, scratch files, downloads, logs, installer smoke-test targets, and temporary outputs.
 - Do not leave temporary files elsewhere unless explicitly requested.
-- Treat `./.codex/` as Codex settings/config only. Do not use it for high-churn work products.
 
 ## Starter Package Files
 - `AGENTS.md` is local guidance for agents working in this starter package.
