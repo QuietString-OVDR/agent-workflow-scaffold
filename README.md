@@ -49,12 +49,16 @@ Core rules:
 
 ## Recommended Install
 
-```bash
-bash install-to-repo.sh /path/to/target-repo
+From native Windows PowerShell:
+
+```powershell
+& .\install-to-repo.bat "C:\path\to\target-repo"
 ```
 
-```bat
-install-to-repo.bat C:\path\to\target-repo
+From an explicitly selected Git Bash, WSL, or Linux session:
+
+```bash
+./install-to-repo.sh /path/to/target-repo
 ```
 
 The install script:
