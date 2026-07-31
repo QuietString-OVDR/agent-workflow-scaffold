@@ -3,9 +3,9 @@ param(
 	[Parameter(Mandatory = $true)]
 	[string]$TargetRepo,
 
-	[Parameter(Mandatory = $true)]
 	[string]$AnchorRepo,
 
+	[switch]$CommonStore,
 	[switch]$VerifyOnly,
 	[int]$LockTimeoutSeconds = 30
 )
@@ -125,12 +125,58 @@ function Get-ExactJunction {
 function Remove-JunctionLeaf {
 	param([Parameter(Mandatory = $true)][string]$Path)
 
-	& cmd.exe /d /c rmdir "`"$Path`"" 2>&1 | Out-Null
-	if ($LASTEXITCODE -ne 0) {
-		throw "Failed to remove junction leaf: $Path"
-	}
+	[IO.Directory]::Delete($Path, $false)
 	if (Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue) {
 		throw "Junction leaf still exists after removal: $Path"
+	}
+}
+
+function Get-CommonStoreRemovalState {
+	param(
+		[Parameter(Mandatory = $true)]$TargetContext,
+		[Parameter(Mandatory = $true)]$Manifest
+	)
+
+	if (-not $Manifest.schemaVersion -or [int]$Manifest.schemaVersion -ne 2) {
+		throw "Unsupported common-store branch-docs manifest schema."
+	}
+	foreach ($property in @("layout", "storeRelativePath")) {
+		if (-not $Manifest.PSObject.Properties[$property] -or -not $Manifest.$property) {
+			throw "Manifest property '$property' is missing."
+		}
+	}
+	if ($Manifest.layout -cne "git-common-dir-store-v1" -or
+		$Manifest.storeRelativePath -cne "branch-docs-starter/store") {
+		throw "Manifest does not describe the fixed common-dir store layout."
+	}
+
+	$storeRoot = Normalize-Path (Join-Path $TargetContext.CommonDir "branch-docs-starter/store")
+	$branchesRoot = Normalize-Path (Join-Path $storeRoot "branches")
+	$indexRoot = Normalize-Path (Join-Path $storeRoot "index")
+	$workRoot = Normalize-Path (Join-Path $storeRoot "work")
+	foreach ($target in @($storeRoot, $branchesRoot, $indexRoot, $workRoot)) {
+		$item = Get-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue
+		if (-not $item -or -not ($item -is [IO.DirectoryInfo]) -or
+			($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+			throw "Common-store canonical target must be a physical directory: $target"
+		}
+	}
+
+	$docsRoot = Join-Path $TargetContext.Root "docs"
+	$docsItem = Get-Item -LiteralPath $docsRoot -Force -ErrorAction SilentlyContinue
+	if (-not $docsItem -or -not ($docsItem -is [IO.DirectoryInfo]) -or
+		($docsItem.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+		throw "Worktree docs root must be a physical non-reparse directory: $docsRoot"
+	}
+
+	$links = @(
+		Get-ExactJunction (Join-Path $docsRoot "branches") $branchesRoot
+		Get-ExactJunction (Join-Path $docsRoot "index") $indexRoot
+		Get-ExactJunction (Join-Path $docsRoot "work") $workRoot
+	)
+	return [pscustomobject][ordered]@{
+		StoreRoot = $storeRoot
+		Links = @($links | Where-Object { $null -ne $_ })
 	}
 }
 
@@ -142,6 +188,66 @@ if ($LockTimeoutSeconds -lt 1) {
 }
 
 $targetContext = Get-RepoContext $TargetRepo
+$targetManifestPath = Join-Path $targetContext.CommonDir "branch-docs-starter/manifest.json"
+$targetManifest = if (Test-Path -LiteralPath $targetManifestPath -PathType Leaf) {
+	[IO.File]::ReadAllText($targetManifestPath) | ConvertFrom-Json
+} else {
+	$null
+}
+if ($CommonStore -or ($targetManifest -and [int]$targetManifest.schemaVersion -eq 2)) {
+	if (-not $targetManifest) {
+		throw "Common-store branch-docs manifest not found: $targetManifestPath"
+	}
+	if ([int]$targetManifest.schemaVersion -eq 1) {
+		throw "Legacy anchor manifest detected. Run migrate-anchorless-store.ps1 before using -CommonStore."
+	}
+	$state = Get-CommonStoreRemovalState -TargetContext $targetContext -Manifest $targetManifest
+	if ($VerifyOnly) {
+		if ($state.Links.Count -eq 0) {
+			Write-Output "Verified already-unbootstrapped common-store worktree: $($targetContext.Root)"
+		} else {
+			Write-Output "Verified $($state.Links.Count) remaining removable common-store junction(s): $($targetContext.Root)"
+		}
+		exit 0
+	}
+	if ($state.Links.Count -eq 0) {
+		Write-Output "Common-store branch-docs junction leaves were already removed: $($targetContext.Root)"
+		exit 0
+	}
+
+	$lockPath = Join-Path $targetContext.CommonDir "branch-docs-starter/lifecycle.lock"
+	$lock = $null
+	$alreadyRemoved = $false
+	try {
+		$lock = Enter-LifecycleLock $lockPath $LockTimeoutSeconds
+		$targetContext = Get-RepoContext $targetContext.Root
+		$targetManifest = [IO.File]::ReadAllText($targetManifestPath) | ConvertFrom-Json
+		$state = Get-CommonStoreRemovalState -TargetContext $targetContext -Manifest $targetManifest
+		if ($state.Links.Count -eq 0) {
+			$alreadyRemoved = $true
+		} else {
+			foreach ($link in $state.Links) {
+				Remove-JunctionLeaf $link.Path
+				if (-not (Test-Path -LiteralPath $link.Target -PathType Container)) {
+					throw "Common-store target disappeared while removing junction leaf: $($link.Target)"
+				}
+			}
+		}
+	} finally {
+		if ($lock) {
+			$lock.Dispose()
+		}
+	}
+	if ($alreadyRemoved) {
+		Write-Output "Common-store branch-docs junction leaves were already removed: $($targetContext.Root)"
+	} else {
+		Write-Output "Removed common-store branch-docs junction leaves before worktree deletion: $($targetContext.Root)"
+	}
+	exit 0
+}
+if (-not $AnchorRepo) {
+	throw "-AnchorRepo is required for the legacy anchor layout. Use -CommonStore for the anchorless common-dir layout."
+}
 $anchorContext = Get-RepoContext $AnchorRepo
 if (Test-PathEqual $targetContext.Root $anchorContext.Root) {
 	throw "Refusing to unbootstrap the primary anchor."

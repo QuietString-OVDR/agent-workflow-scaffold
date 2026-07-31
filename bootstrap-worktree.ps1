@@ -3,9 +3,9 @@ param(
 	[Parameter(Mandatory = $true)]
 	[string]$TargetRepo,
 
-	[Parameter(Mandatory = $true)]
 	[string]$AnchorRepo,
 
+	[switch]$CommonStore,
 	[switch]$DryRun,
 	[switch]$VerifyOnly,
 	[string]$CandidateRef,
@@ -20,6 +20,9 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
 
 $script:SchemaVersion = 1
+$script:CommonStoreSchemaVersion = 2
+$script:CommonStoreLayoutName = "git-common-dir-store-v1"
+$script:CommonStoreRelativePath = "branch-docs-starter/store"
 $script:PackageRoot = $PSScriptRoot
 $script:ReservedDirectoryPaths = @(
 	"docs/branches",
@@ -753,6 +756,56 @@ function Get-ManagedExcludePatterns {
 	return $patterns
 }
 
+function Get-InstructionOwnership {
+	param([Parameter(Mandatory = $true)][string]$Repo)
+
+	return [pscustomobject][ordered]@{
+		agentsTracked = [bool](Test-GitTracked $Repo "AGENTS.md")
+		claudeTracked = [bool](Test-GitTracked $Repo "CLAUDE.md")
+		codexConfigTracked = [bool](Test-GitTracked $Repo ".codex/config.toml")
+	}
+}
+
+function Get-ManagedExcludePatternsFromOwnership {
+	param([Parameter(Mandatory = $true)]$Ownership)
+
+	$patterns = @(
+		"/.agent-work/",
+		"/docs/branches/",
+		"/docs/index/",
+		"/docs/work/",
+		"/docs/init-branch-docs.ps1",
+		"/docs/init-branch-docs.sh"
+	)
+	if (-not [bool]$Ownership.agentsTracked) {
+		$patterns += "/AGENTS.md"
+	}
+	if (-not [bool]$Ownership.claudeTracked) {
+		$patterns += "/CLAUDE.md"
+	}
+	return $patterns
+}
+
+function Assert-InstructionOwnership {
+	param(
+		[Parameter(Mandatory = $true)][string]$Repo,
+		[Parameter(Mandatory = $true)]$Expected
+	)
+
+	foreach ($property in @("agentsTracked", "claudeTracked", "codexConfigTracked")) {
+		if (-not $Expected.PSObject.Properties[$property] -or
+			-not ($Expected.$property -is [bool])) {
+			throw "Manifest instructionOwnership.$property must be a boolean."
+		}
+	}
+	$actual = Get-InstructionOwnership $Repo
+	foreach ($property in @("agentsTracked", "claudeTracked", "codexConfigTracked")) {
+		if ([bool]$actual.$property -ne [bool]$Expected.$property) {
+			throw "Target ownership for $property does not match the common-store manifest ownership."
+		}
+	}
+}
+
 function Assert-ManifestExcludePatterns {
 	param(
 		[Parameter(Mandatory = $true)]$Manifest,
@@ -930,6 +983,57 @@ function Install-AnchorStore {
 	}
 }
 
+function Get-CommonStoreLayout {
+	param([Parameter(Mandatory = $true)][string]$CommonDir)
+
+	$stateRoot = Join-Path $CommonDir "branch-docs-starter"
+	$storeRoot = Join-Path $CommonDir $script:CommonStoreRelativePath
+	return [pscustomobject][ordered]@{
+		StateRoot = Normalize-Path $stateRoot
+		StoreRoot = Normalize-Path $storeRoot
+		BranchesRoot = Normalize-Path (Join-Path $storeRoot "branches")
+		IndexRoot = Normalize-Path (Join-Path $storeRoot "index")
+		WorkRoot = Normalize-Path (Join-Path $storeRoot "work")
+		ManifestPath = Normalize-Path (Join-Path $stateRoot "manifest.json")
+		LockPath = Normalize-Path (Join-Path $stateRoot "lifecycle.lock")
+	}
+}
+
+function Install-CommonStore {
+	param([Parameter(Mandatory = $true)]$Layout)
+
+	if (-not (Test-Path -LiteralPath $Layout.StoreRoot)) {
+		New-Item -ItemType Directory -Path $Layout.StoreRoot -Force | Out-Null
+	}
+	Assert-PhysicalDirectory $Layout.StoreRoot "Common branch-docs store root"
+
+	foreach ($directory in @($Layout.BranchesRoot, $Layout.IndexRoot, $Layout.WorkRoot)) {
+		if (-not (Test-Path -LiteralPath $directory)) {
+			New-Item -ItemType Directory -Path $directory -Force | Out-Null
+		}
+		Assert-PhysicalDirectory $directory "Common branch-docs reserved namespace"
+	}
+
+	Copy-File (Join-Path $script:PackageRoot "docs/branches/README.md") (Join-Path $Layout.BranchesRoot "README.md")
+	Copy-File (Join-Path $script:PackageRoot "docs/index/README.md") (Join-Path $Layout.IndexRoot "README.md")
+	Copy-File (Join-Path $script:PackageRoot "docs/work/README.md") (Join-Path $Layout.WorkRoot "README.md")
+	Copy-File (Join-Path $script:PackageRoot "docs/index/branch-bindings.json") (Join-Path $Layout.IndexRoot "branch-bindings.json") -OnlyIfMissing
+	Copy-File (Join-Path $script:PackageRoot "docs/index/work-items.json") (Join-Path $Layout.IndexRoot "work-items.json") -OnlyIfMissing
+
+	$templateSource = Join-Path $script:PackageRoot "docs/branches/_template"
+	$templateTarget = Join-Path $Layout.BranchesRoot "_template"
+	if (-not (Test-Path -LiteralPath $templateTarget)) {
+		New-Item -ItemType Directory -Path $templateTarget -Force | Out-Null
+	}
+	Assert-PhysicalDirectory $templateTarget "Common branch-doc template root"
+	$reparseDescendants = @(Get-ChildItem -LiteralPath $templateTarget -Recurse -Force -ErrorAction Stop |
+		Where-Object { ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 })
+	if ($reparseDescendants.Count -gt 0) {
+		throw "Common branch-doc template contains a reparse point: $($reparseDescendants[0].FullName)"
+	}
+	Copy-Item -Path (Join-Path $templateSource "*") -Destination $templateTarget -Recurse -Force
+}
+
 function Verify-EffectiveIgnore {
 	param(
 		[Parameter(Mandatory = $true)][string]$Repo,
@@ -1105,6 +1209,363 @@ function Assert-AuthoritativeState {
 	}
 }
 
+function Assert-CommonStoreProjection {
+	param(
+		[Parameter(Mandatory = $true)]$TargetContext,
+		[Parameter(Mandatory = $true)]$Layout,
+		[switch]$Create,
+		[switch]$Require
+	)
+
+	$docsRoot = Join-Path $TargetContext.Root "docs"
+	$docsItem = Get-Item -LiteralPath $docsRoot -Force -ErrorAction SilentlyContinue
+	if (-not $docsItem -and $Create) {
+		New-Item -ItemType Directory -Path $docsRoot -Force | Out-Null
+		$docsItem = Get-Item -LiteralPath $docsRoot -Force
+	}
+	if ($docsItem) {
+		Assert-PhysicalDirectory $docsRoot "Worktree docs root"
+	} elseif ($Require) {
+		throw "Worktree docs root is missing: $docsRoot"
+	} else {
+		return
+	}
+
+	foreach ($projection in @(
+		@("branches", $Layout.BranchesRoot),
+		@("index", $Layout.IndexRoot),
+		@("work", $Layout.WorkRoot)
+	)) {
+		$projectionPath = Join-Path $docsRoot $projection[0]
+		$item = Get-Item -LiteralPath $projectionPath -Force -ErrorAction SilentlyContinue
+		if ($item) {
+			Assert-OrCreateJunction $projectionPath $projection[1]
+		} elseif ($Create) {
+			Assert-OrCreateJunction $projectionPath $projection[1] -Create
+		} elseif ($Require) {
+			throw "Expected common-store junction is missing: $projectionPath"
+		}
+	}
+}
+
+function Assert-CommonStoreManifest {
+	param(
+		[Parameter(Mandatory = $true)]$TargetContext,
+		[Parameter(Mandatory = $true)]$Manifest,
+		[Parameter(Mandatory = $true)]$Layout,
+		[switch]$AllowUnapprovedCurrentIgnorePolicy,
+		[switch]$RequireProjection
+	)
+
+	if ([int]$Manifest.schemaVersion -ne $script:CommonStoreSchemaVersion) {
+		throw "Unsupported common-store manifest schema version: $($Manifest.schemaVersion)"
+	}
+	foreach ($property in @(
+		"layout",
+		"storeRelativePath",
+		"starterRevision",
+		"instructionOwnership",
+		"commonExcludePatterns",
+		"ignoreFingerprintAlgorithm",
+		"approvedIgnoreFingerprints"
+	)) {
+		if (-not $Manifest.PSObject.Properties[$property] -or $null -eq $Manifest.$property) {
+			throw "Manifest property '$property' is missing."
+		}
+	}
+	if ($Manifest.layout -cne $script:CommonStoreLayoutName) {
+		throw "Unsupported common-store layout: $($Manifest.layout)"
+	}
+	if ($Manifest.storeRelativePath -cne $script:CommonStoreRelativePath) {
+		throw "Manifest storeRelativePath must be '$($script:CommonStoreRelativePath)'."
+	}
+	if ($Manifest.ignoreFingerprintAlgorithm -cne "tracked-gitignore-path-blob-v1") {
+		throw "Unsupported ignore fingerprint algorithm: $($Manifest.ignoreFingerprintAlgorithm)"
+	}
+
+	Assert-PhysicalDirectory $Layout.StoreRoot "Common branch-docs store root"
+	foreach ($path in @($Layout.BranchesRoot, $Layout.IndexRoot, $Layout.WorkRoot)) {
+		Assert-PhysicalDirectory $path "Common branch-docs reserved namespace"
+	}
+
+	Assert-WorktreeProjectionSafety $TargetContext.Root
+	Assert-NoReservedCollisions $TargetContext.Root
+	Assert-TrackedInstructionCompatibility $TargetContext.Root
+	Assert-IgnorePolicyPreflight $TargetContext.Root
+	Assert-InstructionOwnership $TargetContext.Root $Manifest.instructionOwnership
+	Verify-ProductDocumentationNotIgnored $TargetContext.Root
+
+	$expectedPatterns = @(Get-ManagedExcludePatternsFromOwnership $Manifest.instructionOwnership)
+	$actualPatterns = @($Manifest.commonExcludePatterns)
+	if ($actualPatterns.Count -ne $expectedPatterns.Count) {
+		throw "Manifest commonExcludePatterns does not match the exact ownership-derived pattern set."
+	}
+	for ($index = 0; $index -lt $expectedPatterns.Count; $index++) {
+		if (-not ($actualPatterns[$index] -is [string]) -or
+			$actualPatterns[$index] -cne $expectedPatterns[$index]) {
+			throw "Manifest commonExcludePatterns does not match the exact ownership-derived pattern set."
+		}
+	}
+	Assert-CommonExcludeState `
+		-CommonDir $TargetContext.CommonDir `
+		-ExpectedPatterns $expectedPatterns `
+		-RequireManagedBlock
+	Assert-CommonStoreProjection `
+		-TargetContext $TargetContext `
+		-Layout $Layout `
+		-Require:$RequireProjection
+
+	if (-not $AllowUnapprovedCurrentIgnorePolicy) {
+		$currentFingerprint = Get-IgnoreFingerprint $TargetContext.Root
+		if ($Manifest.approvedIgnoreFingerprints -notcontains $currentFingerprint) {
+			throw "Current tracked ignore-policy fingerprint is not approved: $currentFingerprint"
+		}
+	}
+}
+
+function Assert-CommonStoreInitializationPreflight {
+	param(
+		[Parameter(Mandatory = $true)]$TargetContext,
+		[Parameter(Mandatory = $true)]$Layout
+	)
+
+	Assert-WorktreeProjectionSafety $TargetContext.Root
+	Assert-NoReservedCollisions $TargetContext.Root
+	Assert-TrackedInstructionCompatibility $TargetContext.Root
+	Assert-IgnorePolicyPreflight $TargetContext.Root
+	Verify-ProductDocumentationNotIgnored $TargetContext.Root
+	if (Get-Item -LiteralPath $Layout.StoreRoot -Force -ErrorAction SilentlyContinue) {
+		throw "Common branch-docs store exists without a schema-v2 manifest: $($Layout.StoreRoot)"
+	}
+	$ownership = Get-InstructionOwnership $TargetContext.Root
+	$patterns = @(Get-ManagedExcludePatternsFromOwnership $ownership)
+	Assert-CommonExcludeState $TargetContext.CommonDir $patterns
+	Assert-CommonStoreProjection -TargetContext $TargetContext -Layout $Layout
+	return [pscustomobject][ordered]@{
+		Ownership = $ownership
+		Patterns = $patterns
+	}
+}
+
+function Get-StarterRevision {
+	$result = Invoke-Git -Repo $script:PackageRoot -Arguments @("rev-parse", "--verify", "HEAD") -AllowFailure
+	return $(if ($result.ExitCode -eq 0) { $result.Text } else { "uncommitted" })
+}
+
+function Invoke-CommonStoreMode {
+	param(
+		[Parameter(Mandatory = $true)]$InitialTargetContext,
+		$InitialManifest
+	)
+
+	$targetContext = $InitialTargetContext
+	$layout = Get-CommonStoreLayout $targetContext.CommonDir
+	$manifest = $InitialManifest
+	if ($manifest -and [int]$manifest.schemaVersion -eq $script:SchemaVersion) {
+		throw "Legacy anchor manifest detected. Run migrate-anchorless-store.ps1 before using -CommonStore."
+	}
+	if ($manifest -and [int]$manifest.schemaVersion -ne $script:CommonStoreSchemaVersion) {
+		throw "Unsupported branch-docs manifest schema version: $($manifest.schemaVersion)"
+	}
+
+	if ($manifest) {
+		Assert-CommonStoreManifest `
+			-TargetContext $targetContext `
+			-Manifest $manifest `
+			-Layout $layout `
+			-AllowUnapprovedCurrentIgnorePolicy:$ApproveCurrentIgnorePolicy
+	} else {
+		Assert-CommonStoreInitializationPreflight -TargetContext $targetContext -Layout $layout | Out-Null
+	}
+
+	if ($DryRun) {
+		Write-Output "DRY RUN"
+		Write-Output "mode=common-store"
+		Write-Output "target=$($targetContext.Root)"
+		Write-Output "commonDir=$($targetContext.CommonDir)"
+		Write-Output "storeRoot=$($layout.StoreRoot)"
+		return
+	}
+
+	if ($ApproveCurrentIgnorePolicy) {
+		if (-not $manifest) {
+			throw "Ignore-policy approval requires an existing manifest."
+		}
+		$approvalLock = $null
+		try {
+			$approvalLock = Enter-LifecycleLock $layout.LockPath $LockTimeoutSeconds
+			$targetContext = Get-RepoContext $targetContext.Root
+			$layout = Get-CommonStoreLayout $targetContext.CommonDir
+			$manifest = Read-Manifest $layout.ManifestPath
+			if (-not $manifest) {
+				throw "Branch-docs manifest disappeared while waiting for the lifecycle lock."
+			}
+			Assert-CommonStoreManifest `
+				-TargetContext $targetContext `
+				-Manifest $manifest `
+				-Layout $layout `
+				-AllowUnapprovedCurrentIgnorePolicy
+			$expected = $ExpectedHeadOid.ToLowerInvariant()
+			$currentOid = Get-FullCommitOid $targetContext.Root "HEAD"
+			if ($expected -ne $currentOid) {
+				throw "HEAD OID mismatch. Expected $expected, found $currentOid."
+			}
+			$ignoreDiff = Invoke-Git `
+				-Repo $targetContext.Root `
+				-Arguments @("diff", "--quiet", "HEAD", "--", ".gitignore", ":(glob)**/.gitignore") `
+				-AllowFailure
+			if ($ignoreDiff.ExitCode -ne 0) {
+				throw "Tracked .gitignore files differ from the reviewed HEAD; commit or restore them before approval."
+			}
+			$reviewedFingerprint = Get-IgnoreFingerprint $targetContext.Root $currentOid
+			$indexedFingerprint = Get-IgnoreFingerprint $targetContext.Root
+			if ($indexedFingerprint -ne $reviewedFingerprint) {
+				throw "Tracked .gitignore index differs from the reviewed HEAD; commit or restore it before approval."
+			}
+			Verify-EffectiveIgnore $targetContext.Root @($manifest.commonExcludePatterns)
+			$currentFingerprint = $indexedFingerprint
+			if ($manifest.approvedIgnoreFingerprints -contains $currentFingerprint) {
+				Write-Output "Ignore-policy fingerprint is already approved: $currentFingerprint"
+				return
+			}
+
+			$approvalBackup = Normalize-Path $ApprovalBackupRoot
+			if (Test-Path -LiteralPath $approvalBackup) {
+				throw "Approval backup root already exists: $approvalBackup"
+			}
+			New-Item -ItemType Directory -Path $approvalBackup | Out-Null
+			Copy-Item -LiteralPath $layout.ManifestPath -Destination (Join-Path $approvalBackup "manifest.json")
+			$approvalRecord = [pscustomobject][ordered]@{
+				schemaVersion = $script:CommonStoreSchemaVersion
+				repoRoot = $targetContext.Root
+				commonDir = $targetContext.CommonDir
+				headOid = $currentOid
+				approvedIgnoreFingerprint = $currentFingerprint
+				createdAt = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssK")
+			}
+			Write-Manifest (Join-Path $approvalBackup "ignore-policy-approval.json") $approvalRecord
+
+			$manifest.approvedIgnoreFingerprints = @($manifest.approvedIgnoreFingerprints) + $currentFingerprint
+			$manifest.updatedAt = Get-Date -Format "yyyy-MM-ddTHH:mm:ssK"
+			Write-Manifest $layout.ManifestPath $manifest
+			Assert-CommonStoreManifest `
+				-TargetContext $targetContext `
+				-Manifest (Read-Manifest $layout.ManifestPath) `
+				-Layout $layout
+			Write-Output "Approved ignore-policy fingerprint: $currentFingerprint"
+			Write-Output "Approval backup: $approvalBackup"
+		} finally {
+			if ($approvalLock) {
+				$approvalLock.Dispose()
+			}
+		}
+		return
+	}
+
+	if ($VerifyOnly) {
+		if (-not $manifest) {
+			throw "Verify-only requires an existing manifest."
+		}
+		$verifyLock = $null
+		try {
+			$verifyLock = Enter-LifecycleLock $layout.LockPath $LockTimeoutSeconds
+			$targetContext = Get-RepoContext $targetContext.Root
+			$layout = Get-CommonStoreLayout $targetContext.CommonDir
+			$manifest = Read-Manifest $layout.ManifestPath
+			if (-not $manifest) {
+				throw "Branch-docs manifest disappeared while waiting for the lifecycle lock."
+			}
+			Assert-CommonStoreManifest `
+				-TargetContext $targetContext `
+				-Manifest $manifest `
+				-Layout $layout `
+				-RequireProjection
+			if ($ExpectedHeadOid) {
+				$expected = $ExpectedHeadOid.ToLowerInvariant()
+				$currentOid = Get-FullCommitOid $targetContext.Root "HEAD"
+				if ($expected -ne $currentOid) {
+					throw "HEAD OID mismatch. Expected $expected, found $currentOid."
+				}
+			}
+			if ($CandidateRef) {
+				$candidateOid = Assert-Candidate $targetContext.Root $CandidateRef $manifest
+				Write-Output "candidateOid=$candidateOid"
+			}
+			Verify-EffectiveIgnore $targetContext.Root @($manifest.commonExcludePatterns)
+			Write-Output "Verified common-store branch-docs worktree: $($targetContext.Root)"
+		} finally {
+			if ($verifyLock) {
+				$verifyLock.Dispose()
+			}
+		}
+		return
+	}
+
+	$lock = $null
+	try {
+		$lock = Enter-LifecycleLock $layout.LockPath $LockTimeoutSeconds
+		$targetContext = Get-RepoContext $targetContext.Root
+		$layout = Get-CommonStoreLayout $targetContext.CommonDir
+		$manifest = Read-Manifest $layout.ManifestPath
+		if ($manifest -and [int]$manifest.schemaVersion -ne $script:CommonStoreSchemaVersion) {
+			throw "Common-store bootstrap found a non-v2 manifest while waiting for the lifecycle lock."
+		}
+
+		if (-not $manifest) {
+			$initial = Assert-CommonStoreInitializationPreflight -TargetContext $targetContext -Layout $layout
+			Install-CommonStore $layout
+			$ignoreFingerprint = Get-IgnoreFingerprint $targetContext.Root
+			$manifest = [pscustomobject][ordered]@{
+				schemaVersion = $script:CommonStoreSchemaVersion
+				layout = $script:CommonStoreLayoutName
+				storeRelativePath = $script:CommonStoreRelativePath
+				starterRevision = Get-StarterRevision
+				instructionOwnership = $initial.Ownership
+				commonExcludePatterns = @($initial.Patterns)
+				ignoreFingerprintAlgorithm = "tracked-gitignore-path-blob-v1"
+				approvedIgnoreFingerprints = @($ignoreFingerprint)
+				updatedAt = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssK")
+			}
+			Upsert-CommonExclude (Join-Path $targetContext.CommonDir "info/exclude") @($manifest.commonExcludePatterns)
+			Write-Manifest $layout.ManifestPath $manifest
+		} else {
+			Assert-CommonStoreManifest -TargetContext $targetContext -Manifest $manifest -Layout $layout
+			Install-CommonStore $layout
+			$manifest.starterRevision = Get-StarterRevision
+			$manifest.updatedAt = Get-Date -Format "yyyy-MM-ddTHH:mm:ssK"
+			Write-Manifest $layout.ManifestPath $manifest
+			Upsert-CommonExclude (Join-Path $targetContext.CommonDir "info/exclude") @($manifest.commonExcludePatterns)
+		}
+
+		Install-PerWorktreeFiles $targetContext.Root
+		Assert-CommonStoreProjection -TargetContext $targetContext -Layout $layout -Create
+	} finally {
+		if ($lock) {
+			$lock.Dispose()
+		}
+	}
+
+	& $PSCommandPath `
+		-TargetRepo $targetContext.Root `
+		-CommonStore `
+		-VerifyOnly `
+		-LockTimeoutSeconds $LockTimeoutSeconds
+	if ($LASTEXITCODE -ne 0) {
+		throw "Post-bootstrap common-store verification failed."
+	}
+
+	$manifest = Read-Manifest $layout.ManifestPath
+	$marker = [pscustomobject][ordered]@{
+		schemaVersion = $script:CommonStoreSchemaVersion
+		commonDir = $targetContext.CommonDir
+		storeRoot = $layout.StoreRoot
+		starterRevision = $manifest.starterRevision
+		verifiedAt = (Get-Date -Format "yyyy-MM-ddTHH:mm:ssK")
+	}
+	Write-Manifest (Join-Path $targetContext.Root ".agent-work/branch-docs-bootstrap.json") $marker
+	Write-Output "Bootstrapped common-store branch-docs worktree: $($targetContext.Root)"
+}
+
 if ($env:OS -ne "Windows_NT") {
 	throw "bootstrap-worktree.ps1 supports native Windows only."
 }
@@ -1132,6 +1593,16 @@ if ($LockTimeoutSeconds -lt 1) {
 }
 
 $targetContext = Get-RepoContext $TargetRepo
+$detectedCommonStoreLayout = Get-CommonStoreLayout $targetContext.CommonDir
+$detectedManifest = Read-Manifest $detectedCommonStoreLayout.ManifestPath
+if ($CommonStore -or
+	($detectedManifest -and [int]$detectedManifest.schemaVersion -eq $script:CommonStoreSchemaVersion)) {
+	Invoke-CommonStoreMode -InitialTargetContext $targetContext -InitialManifest $detectedManifest
+	exit 0
+}
+if (-not $AnchorRepo) {
+	throw "-AnchorRepo is required for the legacy anchor layout. Use -CommonStore for the anchorless common-dir layout."
+}
 $anchorContext = Get-RepoContext $AnchorRepo
 if (-not (Test-PathEqual $targetContext.CommonDir $anchorContext.CommonDir)) {
 	throw "Target and anchor do not share the same Git common directory."

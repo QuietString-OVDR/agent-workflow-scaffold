@@ -336,6 +336,29 @@ function Backup-File {
 	}
 }
 
+function Assert-LinkedMigrationSupported {
+	param([Parameter(Mandatory = $true)][string]$CommonDir)
+
+	$manifestPath = Join-Path $CommonDir "branch-docs-starter/manifest.json"
+	if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) {
+		throw "Run layout migration from the main worktree. A linked worktree is supported only after schema-v2 common-store enrollment."
+	}
+	$manifest = [IO.File]::ReadAllText($manifestPath) | ConvertFrom-Json
+	if (-not $manifest.schemaVersion -or [int]$manifest.schemaVersion -ne 2 -or
+		$manifest.layout -cne "git-common-dir-store-v1" -or
+		$manifest.storeRelativePath -cne "branch-docs-starter/store") {
+		throw "Run layout migration from the main worktree. The linked worktree does not have a supported schema-v2 common-store manifest."
+	}
+	$storeRoot = Join-Path $CommonDir ([string]$manifest.storeRelativePath)
+	foreach ($name in @("branches", "index", "work")) {
+		$item = Get-Item -LiteralPath (Join-Path $storeRoot $name) -Force -ErrorAction SilentlyContinue
+		if (-not $item -or -not ($item -is [IO.DirectoryInfo]) -or
+			($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) {
+			throw "Schema-v2 common-store migration root is missing or unsafe: $(Join-Path $storeRoot $name)"
+		}
+	}
+}
+
 function Get-MigrationState {
 	param([Parameter(Mandatory = $true)][string]$Repo)
 
@@ -412,8 +435,9 @@ if ($Apply -and -not ($InstallTrackedInstructions -or $NormalizeGitIgnore)) {
 $repoRoot = Normalize-Path (Invoke-Git $TargetRepo @("rev-parse", "--show-toplevel")).Text
 $gitDir = Normalize-Path (Invoke-Git $repoRoot @("rev-parse", "--path-format=absolute", "--git-dir")).Text
 $commonDir = Normalize-Path (Invoke-Git $repoRoot @("rev-parse", "--path-format=absolute", "--git-common-dir")).Text
-if (-not [string]::Equals($gitDir, $commonDir, [StringComparison]::OrdinalIgnoreCase)) {
-	throw "Run layout migration from the main worktree, not a linked worktree."
+$isLinkedWorktree = -not [string]::Equals($gitDir, $commonDir, [StringComparison]::OrdinalIgnoreCase)
+if ($isLinkedWorktree) {
+	Assert-LinkedMigrationSupported $commonDir
 }
 
 $migrationState = Get-MigrationState $repoRoot
@@ -465,9 +489,12 @@ $lockedRepoRoot = Normalize-Path (Invoke-Git $TargetRepo @("rev-parse", "--show-
 $lockedGitDir = Normalize-Path (Invoke-Git $lockedRepoRoot @("rev-parse", "--path-format=absolute", "--git-dir")).Text
 $lockedCommonDir = Normalize-Path (Invoke-Git $lockedRepoRoot @("rev-parse", "--path-format=absolute", "--git-common-dir")).Text
 if (-not [string]::Equals($lockedRepoRoot, $repoRoot, [StringComparison]::OrdinalIgnoreCase) -or
-	-not [string]::Equals($lockedGitDir, $lockedCommonDir, [StringComparison]::OrdinalIgnoreCase) -or
+	-not [string]::Equals($lockedGitDir, $gitDir, [StringComparison]::OrdinalIgnoreCase) -or
 	-not [string]::Equals($lockedCommonDir, $commonDir, [StringComparison]::OrdinalIgnoreCase)) {
 	throw "Repository identity changed while waiting for the lifecycle lock."
+}
+if ($isLinkedWorktree) {
+	Assert-LinkedMigrationSupported $lockedCommonDir
 }
 $migrationState = Get-MigrationState $lockedRepoRoot
 $actions = @($migrationState.Actions)

@@ -52,7 +52,9 @@ Core rules:
 - `bootstrap-worktree.ps1`
   - Native Windows entrypoint for initializing a primary anchor and projecting the reserved branch-doc paths into same-clone linked worktrees
 - `unbootstrap-worktree.ps1`
-  - Native Windows archive entrypoint that removes only verified child-worktree junction leaves before Orca or Git deletes the worktree
+  - Native Windows archive entrypoint that removes only verified worktree junction leaves before Orca or Git deletes the worktree
+- `migrate-anchorless-store.ps1`
+  - Dry-run-by-default migration from the schema-v1 primary-anchor store to the schema-v2 Git-common-directory store
 - `migrate-orca-worktree-layout.ps1`
   - Dry-run-by-default helper for explicitly approved tracked instruction or ignore-policy migrations
 
@@ -117,41 +119,114 @@ Marked-block helper exit codes, shared by both installers: `0` replaced in place
 created from the block, `3` malformed markers, `4` I/O failure or unsupported target, `5`
 appended to an existing file. Any other code is treated as a failure.
 
-## Orca Linked Worktrees
+## Orca Worktrees
 
-The native Windows worktree layout keeps each checkout's `docs/` directory physical. Only
-these reserved subpaths are shared:
+Both supported native Windows layouts keep each checkout's `docs/` directory physical.
+Only these reserved subpaths are shared:
 
 - `docs/branches/`
 - `docs/index/`
 - `docs/work/`
 
-The primary checkout stores those directories physically. A same-clone linked worktree has
-exact-target NTFS junctions at those three paths. Product docs outside the reserved paths,
-the initializer scripts, `.agent-work/`, and local agent configuration remain per-worktree.
+Product docs outside the reserved paths, the initializer scripts, `.agent-work/`, and local
+agent configuration remain per-worktree.
+
+### Anchorless common store
+
+Use schema v2 when the Git common directory is a bare repository or when no checkout should
+own the shared store. The canonical data lives at
+`<git-common-dir>\branch-docs-starter\store\{branches,index,work}`. Every worktree, including
+the `master` worktree, has exact-target NTFS junctions at the three reserved paths.
+
+For example, this layout is supported:
+
+```text
+Q:\workspace\client-app\                  # bare Git common directory
+Q:\workspace\client-app\master\           # master worktree
+Q:\workspace\client-app\unreal-iteration\ # unreal/local-iteration worktree
+```
+
+Bootstrap each worktree with:
+
+```powershell
+& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+  -File "T:\OneDrive - KRAFTON\Work\agent-setup\branch-docs-starter-worktrees\orca-worktree-bootstrap\bootstrap-worktree.ps1" `
+  -TargetRepo $env:ORCA_WORKTREE_PATH `
+  -CommonStore
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+```
+
+For `client-app`, compose dependency setup exactly once and only after successful bootstrap:
+
+```powershell
+& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+  -File "T:\OneDrive - KRAFTON\Work\agent-setup\branch-docs-starter-worktrees\orca-worktree-bootstrap\bootstrap-worktree.ps1" `
+  -TargetRepo $env:ORCA_WORKTREE_PATH `
+  -CommonStore
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+npm install
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+```
+
+Use this Archive Script:
+
+```powershell
+& powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
+  -File "T:\OneDrive - KRAFTON\Work\agent-setup\branch-docs-starter-worktrees\orca-worktree-bootstrap\unbootstrap-worktree.ps1" `
+  -TargetRepo $env:ORCA_WORKTREE_PATH `
+  -CommonStore
+if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+```
+
+For an Orca project registered at `Q:\workspace\client-app`, use `Q:\workspace` as Orca's
+worktree base path when nested workspaces are enabled. That produces direct children such
+as `Q:\workspace\client-app\master`, rather than
+`Q:\workspace\client-app\client-app\master`.
+
+To migrate an enrolled schema-v1 anchor store, inspect the zero-write dry run first and
+then apply with a new backup directory outside the repository:
+
+```powershell
+.\migrate-anchorless-store.ps1 -AnchorRepo Q:\workspace\client-app
+
+.\migrate-anchorless-store.ps1 `
+  -AnchorRepo Q:\workspace\client-app `
+  -Apply `
+  -BackupRoot Q:\safe-backups\client-app-branch-docs-v1-20260727
+```
+
+The migration inventories files by relative path, length, and SHA-256; preserves empty
+directories and supported internal junctions; makes a verified canonical-store copy;
+retargets every registered worktree; and writes the schema-v2 manifest last. The backup
+contains the original manifest, inventory, a verified store copy, and the moved schema-v1
+anchor roots. Do not move the Git common directory into its final bare location until this
+migration succeeds.
+
+### Legacy primary anchor
 
 Initialize the primary checkout first. Quote both paths when they contain spaces:
 
 ```powershell
 & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
-  -File "T:\OneDrive - KRAFTON\Work\agent-setup\branch-docs-starter\bootstrap-worktree.ps1" `
+  -File "T:\OneDrive - KRAFTON\Work\agent-setup\branch-docs-starter-worktrees\orca-worktree-bootstrap\bootstrap-worktree.ps1" `
   -TargetRepo "Q:\path\to\primary" `
   -AnchorRepo "Q:\path\to\primary"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 ```
 
 Use the same command as the first command in the Orca project's local-only Setup Script,
-with `-TargetRepo "%ORCA_WORKTREE_PATH%"` and the explicit primary checkout as
+with `-TargetRepo $env:ORCA_WORKTREE_PATH` and the explicit primary checkout as
 `-AnchorRepo`. Keep `Run by default` enabled and wait for setup to finish before starting an
 agent.
 
-For `client-app`, compose the existing dependency setup exactly once and only after a
-successful bootstrap:
+For a legacy-anchor `client-app` project, compose the existing dependency setup exactly
+once and only after a successful bootstrap:
 
 ```powershell
 & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
-  -File "T:\OneDrive - KRAFTON\Work\agent-setup\branch-docs-starter\bootstrap-worktree.ps1" `
-  -TargetRepo "%ORCA_WORKTREE_PATH%" `
+  -File "T:\OneDrive - KRAFTON\Work\agent-setup\branch-docs-starter-worktrees\orca-worktree-bootstrap\bootstrap-worktree.ps1" `
+  -TargetRepo $env:ORCA_WORKTREE_PATH `
   -AnchorRepo "Q:\workspace\client-app"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -167,8 +242,8 @@ Configure the Orca project's local-only Archive Script as well:
 
 ```powershell
 & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
-  -File "T:\OneDrive - KRAFTON\Work\agent-setup\branch-docs-starter\unbootstrap-worktree.ps1" `
-  -TargetRepo "%ORCA_WORKTREE_PATH%" `
+  -File "T:\OneDrive - KRAFTON\Work\agent-setup\branch-docs-starter-worktrees\orca-worktree-bootstrap\unbootstrap-worktree.ps1" `
+  -TargetRepo $env:ORCA_WORKTREE_PATH `
   -AnchorRepo "Q:\path\to\primary"
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
@@ -177,9 +252,10 @@ if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
 The archive command verifies the manifest, common Git directory, physical `docs/` root, and
 all three exact junction targets before removing the junction leaves. It never removes the
-canonical target directories. If a previous archive attempt stopped after removing only
-one or two junctions, running the same Archive Script again safely removes the verified
-remainder. On Windows, do not run `git worktree remove` while these
+canonical target directories. Schema v2 is auto-detected, though an explicit `-CommonStore`
+is preferred in the project script. If a previous archive attempt stopped after removing
+only one or two junctions, running the same Archive Script again safely removes the
+verified remainder. On Windows, do not run `git worktree remove` while these
 junctions are present: Git can traverse the junctions and remove canonical shared content.
 Use Orca's archive-enabled removal path; when using the CLI, pass `orca worktree rm
 --run-hooks ...`. If the archive hook did not complete successfully, stop and inspect the
@@ -187,8 +263,9 @@ worktree instead of forcing removal.
 
 The bootstrap fails closed when:
 
-- target and anchor do not share the same Git common directory
-- the anchor is itself a linked worktree
+- a requested legacy target and anchor do not share the same Git common directory
+- a legacy anchor is itself a linked worktree
+- a schema-v2 manifest has an unknown layout or store-relative path
 - any current or known ref tracks a reserved path, including a Windows case-fold collision
 - tracked `AGENTS.md` lacks the compatibility block
 - tracked instruction files differ from the index
@@ -241,6 +318,9 @@ Run the native-Windows regression suites with disposable fixture roots under `.a
 ```powershell
 .\tests\orca-worktree-bootstrap.Tests.ps1 `
   -FixtureRoot Q:\scratch\.agent-work\branch-docs-starter-tests\orca-worktree-bootstrap
+
+.\tests\common-store.Tests.ps1 `
+  -FixtureRoot Q:\scratch\.agent-work\branch-docs-starter-tests\common-store
 
 .\tests\installer-layout.Tests.ps1 `
   -FixtureRoot Q:\scratch\.agent-work\branch-docs-starter-tests\installer-layout

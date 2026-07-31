@@ -99,6 +99,26 @@ function Assert-PhysicalDirectory {
 	}
 }
 
+function Assert-ExactJunction {
+	param(
+		[Parameter(Mandatory = $true)][string]$Path,
+		[Parameter(Mandatory = $true)][string]$ExpectedTarget,
+		[Parameter(Mandatory = $true)][string]$Description
+	)
+
+	$item = Get-Item -LiteralPath $Path -Force -ErrorAction SilentlyContinue
+	if (-not $item -or -not ($item -is [IO.DirectoryInfo]) -or $item.LinkType -ne "Junction") {
+		throw "$Description must be a junction: $Path"
+	}
+	$targets = @($item.Target)
+	if ($targets.Count -ne 1 -or -not $targets[0]) {
+		throw "Unable to resolve $Description target: $Path"
+	}
+	if (-not (Test-PathEqual $targets[0] $ExpectedTarget)) {
+		throw "$Description points to the wrong target: $Path -> $($targets[0]); expected $ExpectedTarget"
+	}
+}
+
 function Get-BranchDocsLayout {
 	param([Parameter(Mandatory = $true)][string]$WorktreeRoot)
 
@@ -110,6 +130,7 @@ function Get-BranchDocsLayout {
 			ManifestPath = $null
 			CommonDir = $commonDir
 			AnchorRepoRoot = $WorktreeRoot
+			StoreRoot = $docsRoot
 			DocsRoot = $docsRoot
 			BranchesRoot = (Join-Path $docsRoot "branches")
 			WorkRoot = (Join-Path $docsRoot "work")
@@ -119,7 +140,44 @@ function Get-BranchDocsLayout {
 	}
 
 	$manifest = [IO.File]::ReadAllText($manifestPath) | ConvertFrom-Json
-	if (-not $manifest.schemaVersion -or [int]$manifest.schemaVersion -ne 1) {
+	if (-not $manifest.schemaVersion) {
+		throw "Unsupported branch-docs manifest schema in $manifestPath"
+	}
+	if ([int]$manifest.schemaVersion -eq 2) {
+		if ($manifest.layout -cne "git-common-dir-store-v1") {
+			throw "Unsupported schema-v2 branch-docs layout in $manifestPath"
+		}
+		if ($manifest.storeRelativePath -cne "branch-docs-starter/store") {
+			throw "Unsupported schema-v2 branch-docs store path in $manifestPath"
+		}
+
+		$storeRoot = Normalize-Path (Join-Path $commonDir ([string]$manifest.storeRelativePath))
+		$branchesRoot = Join-Path $storeRoot "branches"
+		$workRoot = Join-Path $storeRoot "work"
+		$indexRoot = Join-Path $storeRoot "index"
+		$docsRoot = Join-Path $WorktreeRoot "docs"
+		Assert-PhysicalDirectory $storeRoot "Common branch-docs store root"
+		Assert-PhysicalDirectory $branchesRoot "Canonical branches root"
+		Assert-PhysicalDirectory $workRoot "Canonical work root"
+		Assert-PhysicalDirectory $indexRoot "Canonical index root"
+		Assert-PhysicalDirectory $docsRoot "Worktree docs root"
+		Assert-ExactJunction (Join-Path $docsRoot "branches") $branchesRoot "Worktree branches projection"
+		Assert-ExactJunction (Join-Path $docsRoot "work") $workRoot "Worktree work projection"
+		Assert-ExactJunction (Join-Path $docsRoot "index") $indexRoot "Worktree index projection"
+
+		return [pscustomobject]@{
+			ManifestPath = $manifestPath
+			CommonDir = $commonDir
+			AnchorRepoRoot = $null
+			StoreRoot = $storeRoot
+			DocsRoot = $docsRoot
+			BranchesRoot = $branchesRoot
+			WorkRoot = $workRoot
+			IndexRoot = $indexRoot
+			LockPath = (Join-Path $commonDir "branch-docs-starter/lifecycle.lock")
+		}
+	}
+	if ([int]$manifest.schemaVersion -ne 1) {
 		throw "Unsupported branch-docs manifest schema in $manifestPath"
 	}
 	foreach ($property in @("anchorRepoRoot", "commonDir", "branchesRoot", "workRoot", "indexRoot")) {
@@ -158,6 +216,7 @@ function Get-BranchDocsLayout {
 		ManifestPath = $manifestPath
 		CommonDir = $commonDir
 		AnchorRepoRoot = $anchorRoot
+		StoreRoot = $docsRoot
 		DocsRoot = $docsRoot
 		BranchesRoot = $branchesRoot
 		WorkRoot = $workRoot
@@ -703,7 +762,7 @@ $jiraBaseUrl = "https://overdare.atlassian.net"
 $lifecycleLock = Enter-LifecycleLock $layout.LockPath
 try {
 $lockedLayout = Get-BranchDocsLayout $repoRoot
-foreach ($property in @("CommonDir", "AnchorRepoRoot", "DocsRoot", "BranchesRoot", "WorkRoot", "IndexRoot", "LockPath")) {
+foreach ($property in @("CommonDir", "StoreRoot", "DocsRoot", "BranchesRoot", "WorkRoot", "IndexRoot", "LockPath")) {
 	if (-not (Test-PathEqual $layout.$property $lockedLayout.$property)) {
 		throw "Branch-docs layout changed while waiting for the lifecycle lock: $property"
 	}

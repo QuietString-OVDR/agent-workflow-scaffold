@@ -434,8 +434,8 @@ $result = Invoke-Bootstrap $reparseRepo $reparseRepo -ExpectFailure
 Check "reparse .agent-work failure is explained" ($result.Output -match "physical non-reparse")
 Check "reparse target sentinel preserved" (Test-Path -LiteralPath $reparseSentinel -PathType Leaf)
 Check "reparse bootstrap created no reserved store" (-not (Test-Path -LiteralPath (Join-Path $reparseRepo "docs/work")))
-& cmd.exe /d /c rmdir "`"$(Join-Path $reparseRepo '.agent-work')`"" | Out-Null
-Check "test reparse leaf cleanup exit 0" ($LASTEXITCODE -eq 0)
+[IO.Directory]::Delete((Join-Path $reparseRepo ".agent-work"), $false)
+Check "test reparse leaf cleanup exit 0" (-not (Get-Item -LiteralPath (Join-Path $reparseRepo ".agent-work") -Force -ErrorAction SilentlyContinue))
 
 Write-Output "=== anchor and child projection ==="
 $anchor = New-TestRepo "anchor" -CompatibleInstructions -TrackedCodexConfig -TrackedProductDocs
@@ -800,8 +800,8 @@ Invoke-Git $excludeAnchor @("worktree", "remove", "--force", $missingRevisionChi
 Write-Output "=== child removal preserves anchor store ==="
 $sentinel = Join-Path $anchor "docs/work/sentinel.md"
 [IO.File]::WriteAllText($sentinel, "keep`n")
-& cmd.exe /d /c rmdir "`"$(Join-Path $child 'docs/branches')`"" | Out-Null
-Check "simulated interrupted unbootstrap removed one junction" ($LASTEXITCODE -eq 0)
+[IO.Directory]::Delete((Join-Path $child "docs/branches"), $false)
+Check "simulated interrupted unbootstrap removed one junction" (-not (Get-Item -LiteralPath (Join-Path $child "docs/branches") -Force -ErrorAction SilentlyContinue))
 & powershell.exe -NoProfile -NonInteractive -ExecutionPolicy Bypass `
 	-File $unbootstrap `
 	-TargetRepo $child `
