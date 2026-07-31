@@ -46,6 +46,14 @@ Core rules:
   - Helper script that installs the starter into a target repository
 - `install-to-repo.bat`
   - Windows batch helper that installs the starter into a target repository
+- `profiles/`
+  - Canonical marked `AGENTS.md` blocks for `client`, `sandbox`, and `client-build-tools`, plus policy shared by multiple profiles
+- `config/repo-agent-profiles.json`
+  - Repository identity, discovery, block ownership, and composition manifest
+- `tools/repo-agent-config.ps1`
+  - Windows PowerShell tool for planning, verifying, and applying repository-specific profile blocks after the common starter exists
+- `tests/repo-agent-config/smoke.ps1`
+  - Disposable fixture suite for profile composition, failure behavior, idempotency, and Git worktree discovery
 
 ## Recommended Install
 
@@ -77,6 +85,91 @@ Both installers require `git` on `PATH`. The install aborts when `git` is missin
 tracked-`docs/` query fails, when `git rev-parse` fails for any reason other than "not a git
 repository", or when the target resolves to something that is not a working tree. Only a
 positively identified non-repository is skipped with a warning so the install can continue.
+
+## Repository Agent Profiles
+
+Repository profiles extend the common branch-docs setup without making a second installer
+responsible for the same files:
+
+- `install-to-repo.bat` and `install-to-repo.sh` own the common `branch-docs-starter`
+  blocks, `CLAUDE.md`, `.gitignore`, `.agent-work/`, and `docs/`
+- `tools/repo-agent-config.ps1` owns only the marked repository-profile blocks in root
+  `AGENTS.md`
+- The profile tool never invokes the common installers and never creates a missing
+  `AGENTS.md`; install the appropriate common scaffold first
+- `client` and `sandbox` compose their repository profile with one shared Unreal
+  clean-build guard
+- `client-build-tools` has a separate profile and does not receive the Unreal guard
+
+The tool accepts only positively identified repositories. It checks the exact Git top level,
+origin repository id, a tracked profile sentinel, ignored local setup files, canonical marker
+structure, a regular same-volume `.agent-work/`, and the expected common policy. It also
+validates every manifest profile and constrains canonical block sources to this package's
+`profiles/` directory before assessing targets. Discovery matches only direct `clientN` and
+`sandboxN` directories, plus either a direct `client-build-tools` clone or registered working
+trees inside a bare `client-build-tools` container. `client-app` is always excluded.
+
+`Plan` reports `Compliant`, `Drift`, or `Blocked` without writing to targets. Read-only Git
+inspection disables optional index locks:
+
+```powershell
+& .\tools\repo-agent-config.ps1 `
+  -Mode Plan `
+  -Target Q:\workspace\client1 `
+  -Profile client
+```
+
+`Verify` is also read-only and exits with code `2` when any selected target is not compliant:
+
+```powershell
+& .\tools\repo-agent-config.ps1 `
+  -Mode Verify `
+  -WorkspaceRoot Q:\workspace `
+  -Profile client,sandbox
+```
+
+`Apply` requires an explicit target authorization. Review `Plan` first, then apply one exact
+target. Do not combine `-Target` with `-WorkspaceRoot` or a bulk selector:
+
+```powershell
+& .\tools\repo-agent-config.ps1 `
+  -Mode Apply `
+  -Target Q:\workspace\sandbox1 `
+  -Profile sandbox
+```
+
+For reviewed automation, `-NonInteractive` suppresses only the PowerShell confirmation
+prompt; it does not bypass identity checks, preflight, locking, or the dirty-source gate.
+
+For every currently registered `client-build-tools` working tree under its bare container:
+
+```powershell
+& .\tools\repo-agent-config.ps1 `
+  -Mode Apply `
+  -WorkspaceRoot Q:\workspace `
+  -Profile client-build-tools `
+  -AllExistingWorktrees
+```
+
+Apply refuses a dirty canonical source worktree by default. `-AllowDirtySource` is intended
+only for deliberate pre-commit testing. Each apply run uses per-target locks, records source
+and target hashes with binary backups under `.agent-work/repo-agent-config/runs/`, replaces
+`AGENTS.md` atomically on the same volume, verifies externally owned files after the write,
+and rolls back already changed targets if a later target fails.
+
+If an interrupted process leaves `.agent-work/repo-agent-config.lock`, first confirm that no
+profile apply is still running for that target, then remove that one lock file manually and
+rerun `Plan`. Never remove locks speculatively during a live apply.
+
+Run the disposable profile smoke suite from native Windows PowerShell:
+
+```powershell
+& .\tests\repo-agent-config\smoke.ps1
+```
+
+The suite creates fixtures only under this package's `.agent-work/`, exercises direct clones
+and a real local bare-container/linked-worktree layout, and removes its fixture root when it
+finishes.
 
 ### Marker block contract
 

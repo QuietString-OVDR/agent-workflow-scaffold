@@ -1,0 +1,77 @@
+{
+  "schemaVersion": 1,
+  "knownBlocks": [
+    {
+      "id": "unreal-clean-build-guard",
+      "begin": "<!-- OVDR_UNREAL_CLEAN_BUILD_GUARD:START -->",
+      "end": "<!-- OVDR_UNREAL_CLEAN_BUILD_GUARD:END -->"
+    },
+    {
+      "id": "client",
+      "begin": "<!-- overdare-client-guidance:begin -->",
+      "end": "<!-- overdare-client-guidance:end -->"
+    },
+    {
+      "id": "sandbox",
+      "begin": "<!-- overdare-sandbox-guidance:begin -->",
+      "end": "<!-- overdare-sandbox-guidance:end -->"
+    },
+    {
+      "id": "client-build-tools",
+      "begin": "<!-- overdare-client-build-tools-guidance:begin -->",
+      "end": "<!-- overdare-client-build-tools-guidance:end -->"
+    }
+  ],
+  "profiles": {
+    "client": {
+      "discovery": "direct-child",
+      "directoryPattern": "^client[1-9][0-9]*$",
+      "repositoryId": "github.krafton.com/sbx/client",
+      "sentinel": "Meta/Meta.uproject",
+      "commonPolicy": "standard",
+      "blocks": [
+        {
+          "id": "unreal-clean-build-guard",
+          "source": "profiles/shared/AGENTS.unreal-clean-build-guard.md"
+        },
+        {
+          "id": "client",
+          "source": "profiles/client/AGENTS.profile.md"
+        }
+      ]
+    },
+    "sandbox": {
+      "discovery": "direct-child",
+      "directoryPattern": "^sandbox[1-9][0-9]*$",
+      "repositoryId": "github.krafton.com/sbx/sandbox",
+      "sentinel": "Sandbox/Sandbox.uproject",
+      "commonPolicy": "standard",
+      "blocks": [
+        {
+          "id": "unreal-clean-build-guard",
+          "source": "profiles/shared/AGENTS.unreal-clean-build-guard.md"
+        },
+        {
+          "id": "sandbox",
+          "source": "profiles/sandbox/AGENTS.profile.md"
+        }
+      ]
+    },
+    "client-build-tools": {
+      "discovery": "direct-or-git-worktrees",
+      "directoryName": "client-build-tools",
+      "repositoryId": "github.krafton.com/sbx/client-build-tools",
+      "sentinel": "projectbuildtool.sln",
+      "commonPolicy": "standard-or-worktree-aware",
+      "blocks": [
+        {
+          "id": "client-build-tools",
+          "source": "profiles/client-build-tools/AGENTS.profile.md"
+        }
+      ]
+    }
+  },
+  "excludedDirectoryNames": [
+    "client-app"
+  ]
+}
