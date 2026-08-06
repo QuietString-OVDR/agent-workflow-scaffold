@@ -284,14 +284,11 @@ try {
 	Check "Client profile precedes common block" (Assert-BlockBeforeCommon $agentsPath "<!-- overdare-client-guidance:begin -->")
 	Check "Guard appears exactly once" (([regex]::Matches([IO.File]::ReadAllText($agentsPath), "<!-- OVDR_UNREAL_CLEAN_BUILD_GUARD:START -->")).Count -eq 1)
 	Check "Client profile appears exactly once" (([regex]::Matches([IO.File]::ReadAllText($agentsPath), "<!-- overdare-client-guidance:begin -->")).Count -eq 1)
-	Check "Client profile requires clone-specific Uproject" (
-		[IO.File]::ReadAllText($agentsPath) -match [regex]::Escape("<repo-root>\Meta\MetaN.uproject")
+	Check "Client profile contains concise Rider MCP build prohibition" (
+		[IO.File]::ReadAllText($agentsPath) -match '(?m)^- Do not use Rider MCP solution-build tools for Unreal compile, build, or\r?\n  rebuild validation\.$'
 	)
-	Check "Client profile derives N from the clone basename" (
-		[IO.File]::ReadAllText($agentsPath) -match 'matching `clientN`'
-	)
-	Check "Client profile forbids Meta run-config fallback" (
-		[IO.File]::ReadAllText($agentsPath) -match 'do not require or fall back to `Meta`'
+	Check "Client profile removes Rider build invocation and decision context" (
+		[IO.File]::ReadAllText($agentsPath) -notmatch 'build_solution_start|MetaN\.uproject|unrelated test targets|exact solution target|Rider MCP remains available|Reconsider Rider MCP'
 	)
 	Check "CLAUDE.md remains byte-identical" ((Get-Hash $claudePath) -eq $claudeBefore)
 	Check ".gitignore remains byte-identical" ((Get-Hash $ignorePath) -eq $ignoreBefore)
@@ -325,14 +322,11 @@ try {
 	Check "Sandbox Apply succeeds" ($sandboxApply.ExitCode -eq 0) $sandboxApply.Output
 	Check "Sandbox contains one guard" (([regex]::Matches($sandboxText, "<!-- OVDR_UNREAL_CLEAN_BUILD_GUARD:START -->")).Count -eq 1)
 	Check "Sandbox contains one profile" (([regex]::Matches($sandboxText, "<!-- overdare-sandbox-guidance:begin -->")).Count -eq 1)
-	Check "Sandbox profile requires clone-specific Uproject" (
-		$sandboxText -match [regex]::Escape("<repo-root>\Sandbox\SandboxN.uproject")
+	Check "Sandbox profile contains concise Rider MCP build prohibition" (
+		$sandboxText -match '(?m)^- Do not use Rider MCP solution-build tools for Unreal compile, build, or\r?\n  rebuild validation\.$'
 	)
-	Check "Sandbox profile derives N from the clone basename" (
-		$sandboxText -match 'matching `sandboxN`'
-	)
-	Check "Sandbox profile forbids Sandbox run-config fallback" (
-		$sandboxText -match 'do not require or fall back to\s+`Sandbox`'
+	Check "Sandbox profile removes Rider build invocation and decision context" (
+		$sandboxText -notmatch 'build_solution_start|SandboxN\.uproject|unrelated test targets|exact solution target|Rider MCP remains available|Reconsider Rider MCP'
 	)
 
 	"=== Wrong profile and encoding failures ==="
